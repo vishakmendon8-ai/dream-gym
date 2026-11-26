@@ -1,16 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useGym } from '../../context/GymContext';
 import {
   AdmsAttendanceRow,
   AdmsDeviceRow,
   AdmsRawLogRow,
   AdmsServerHealth,
+  ConnectedWsDevice,
   LanDeviceProbeResponse,
+  buildBridgeWsUrl,
   fetchAdmsAttendance,
   fetchAdmsDevices,
   fetchAdmsHealth,
   fetchAdmsRawLogs,
   probeLanDevice,
   registerAdmsDevice,
+  sendWsDeviceCommand,
 } from '../../services/admsBackendClient';
 import {
   Activity,
@@ -22,7 +26,9 @@ import {
   Fingerprint,
   Network,
   Plus,
+  Radio,
   RefreshCw,
+  Send,
   Server,
   Terminal,
   Wifi,
@@ -41,6 +47,7 @@ function fmtTime(iso?: string | null) {
 }
 
 export const AdmsBackendPanel: React.FC = () => {
+  const { playAccessTone } = useGym();
   const [serverUrl, setServerUrl] = useState(DEFAULT_ADMS_URL);
   const [apiToken, setApiToken] = useState('');
   const [loading, setLoading] = useState(false);
@@ -53,6 +60,13 @@ export const AdmsBackendPanel: React.FC = () => {
   const [rawLogs, setRawLogs] = useState<AdmsRawLogRow[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Live WebSocket state (Dream Gym <-> Bridge /ws/live)
+  const [wsStatus, setWsStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [wsDevices, setWsDevices] = useState<ConnectedWsDevice[]>([]);
+  const [lastLiveEvent, setLastLiveEvent] = useState<string | null>(null);
+  const [wsCmdFeedback, setWsCmdFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   // LAN TCP/IP Device Probe
   const [probeIp, setProbeIp] = useState('192.168.1.101');
@@ -100,8 +114,13 @@ export const AdmsBackendPanel: React.FC = () => {
       setDevices([]);
       setAttendance([]);
       setRawLogs([]);
+      setWsDevices([]);
       if (!silent) setLoading(false);
       return;
+    }
+
+    if (Array.isArray(h.connectedWsDevices)) {
+      setWsDevices(h.connectedWsDevices);
     }
 
     const [devRes, attRes, rawRes] = await Promise.all([
@@ -142,6 +161,92 @@ export const AdmsBackendPanel: React.FC = () => {
     loadAll();
   }, []);
 
+  // Maintain live WebSocket stream to ws://<bridge>/ws/live whenever bridge is reachable
+  useEffect(() => {
+    if (!health?.ok) {
+      setWsStatus('disconnected');
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch {}
+        wsRef.current = null;
+      }
+      return;
+    }
+
+    const wsUrl = buildBridgeWsUrl(serverUrl, apiToken);
+    if (!wsUrl) return;
+
+    let cancelled = false;
+    setWsStatus('connecting');
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      if (!cancelled) setWsStatus('connected');
+    };
+
+    ws.onmessage = (event) => {
+      if (cancelled) return;
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'welcome' && Array.isArray(msg.data?.connectedWsDevices)) {
+          setWsDevices(msg.data.connectedWsDevices);
+        } else if (msg.type === 'ws_device_status' && Array.isArray(msg.data?.connectedWsDevices)) {
+          setWsDevices(msg.data.connectedWsDevices);
+          setLastLiveEvent(
+            `WebSocket device ${msg.data.serial_number || 'unknown'} ${msg.data.connected ? 'CONNECTED' : 'DISCONNECTED'}`
+          );
+          loadAll(serverUrl, true);
+        } else if (msg.type === 'attendance_punch') {
+          const d = msg.data || {};
+          setLastLiveEvent(
+            `Live Punch (${d.protocol || 'adms'}): User ${d.employee_code} on SN ${d.device_sn} (${d.verify_mode_label || 'Biometric'})`
+          );
+          playAccessTone(d.granted === false ? 'denied' : 'granted');
+          loadAll(serverUrl, true);
+        } else if (msg.type === 'device_heartbeat') {
+          setLastLiveEvent(
+            `Heartbeat from SN ${msg.data?.serial_number} (${msg.data?.protocol || 'adms'})`
+          );
+          loadAll(serverUrl, true);
+        } else if (msg.type === 'raw_packet') {
+          const p = msg.data;
+          setRawLogs((prev) => [
+            {
+              id: Date.now(),
+              method: p.method,
+              path: p.path,
+              query_string: p.query_string,
+              device_sn: p.device_sn,
+              remote_ip: p.remote_ip,
+              raw_body: p.raw_body,
+              received_at: p.received_at,
+            },
+            ...prev.slice(0, 24),
+          ]);
+        } else if (msg.type === 'ws_device_reply') {
+          setWsCmdFeedback({
+            ok: true,
+            text: `Reply from SN ${msg.data?.serial_number}: ${JSON.stringify(msg.data?.reply)}`,
+          });
+        }
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      if (!cancelled) setWsStatus('disconnected');
+    };
+
+    ws.onerror = () => {
+      if (!cancelled) setWsStatus('disconnected');
+    };
+
+    return () => {
+      cancelled = true;
+      try { ws.close(); } catch {}
+      wsRef.current = null;
+    };
+  }, [health?.ok, serverUrl, apiToken]);
+
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => {
@@ -149,6 +254,16 @@ export const AdmsBackendPanel: React.FC = () => {
     }, 5000);
     return () => clearInterval(timer);
   }, [autoRefresh, serverUrl, apiToken, filterFrom, filterTo, filterEmp, filterSn]);
+
+  const handleSendWsCmd = async (sn: string, cmdObj: Record<string, unknown>) => {
+    setWsCmdFeedback(null);
+    const res = await sendWsDeviceCommand(serverUrl, sn, cmdObj, apiToken);
+    if (!res.ok) {
+      setWsCmdFeedback({ ok: false, text: res.error || 'Failed to send WebSocket command.' });
+    } else {
+      setWsCmdFeedback({ ok: true, text: `Sent to SN ${sn}: ${res.sent}` });
+    }
+  };
 
   const handleRunProbe = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,7 +293,7 @@ export const AdmsBackendPanel: React.FC = () => {
     } else {
       setRegMsg({
         ok: true,
-        text: `Device SN ${regSn.trim()} registered as OFFLINE on the bridge. It will automatically switch to ONLINE once your Secureye machine sends its first /iclock/cdata or /iclock/getrequest heartbeat.`,
+        text: `Device SN ${regSn.trim()} registered as OFFLINE on the bridge. It will automatically switch to ONLINE once your Secureye machine sends its first /iclock/cdata or WebSocket heartbeat.`,
       });
       await loadAll();
     }
@@ -196,13 +311,31 @@ export const AdmsBackendPanel: React.FC = () => {
           <div>
             <h3 className="text-sm font-black text-[#252A30] flex items-center gap-2">
               <Server className="w-4 h-4 text-[#E5B82A]" />
-              <span>Local LAN Bridge &amp; Secureye ADMS Server</span>
+              <span>Local LAN Bridge &amp; Secureye ADMS / WebSocket Server</span>
             </h3>
             <p className="text-xs text-[#84909A]">
-              Run <code>adms-server</code> on your gym PC (same Wi-Fi as the Secureye machine). Punches push over Wi-Fi and mirror live into Dream Gym Firebase (<code>gym001-50a97</code>).
+              Supports both <strong>ADMS HTTP Push</strong> (<code>/iclock/cdata</code>) and <strong>Hardware WebSocket</strong> (<code>ws://</code>) on port <code>{listenPort}</code>, with live WebSocket streaming to Dream Gym.
             </p>
           </div>
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            <span
+              className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border inline-flex items-center gap-1 ${
+                wsStatus === 'connected'
+                  ? 'bg-[#36A875]/15 text-[#36A875] border-[#36A875]/30'
+                  : wsStatus === 'connecting'
+                  ? 'bg-[#FFF8E7] text-[#8A6112] border-[#FFD447]/60'
+                  : 'bg-[#84909A]/10 text-[#84909A] border-[#DCE3E8]'
+              }`}
+            >
+              <Radio className={`w-3 h-3 ${wsStatus === 'connected' ? 'animate-pulse' : ''}`} />
+              <span>
+                {wsStatus === 'connected'
+                  ? 'WS Live Stream ON'
+                  : wsStatus === 'connecting'
+                  ? 'WS Connecting...'
+                  : 'WS Offline'}
+              </span>
+            </span>
             {health?.ok && (
               <span
                 className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${
@@ -229,6 +362,13 @@ export const AdmsBackendPanel: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {lastLiveEvent && (
+          <div className="p-2.5 rounded-xl bg-[#36A875]/10 border border-[#36A875]/30 text-xs font-bold text-[#237A54] flex items-center gap-2">
+            <Radio className="w-3.5 h-3.5 shrink-0 animate-pulse" />
+            <span>{lastLiveEvent}</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
           <div className="md:col-span-5">
@@ -443,6 +583,90 @@ export const AdmsBackendPanel: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
+
+      {/* WebSocket Two-Way Hardware Controls */}
+      <div className="bg-white rounded-2xl p-5 border border-[#DCE3E8] shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[#E9ECEF]">
+          <div>
+            <h4 className="text-xs font-black text-[#252A30] uppercase tracking-wider flex items-center gap-1.5">
+              <Radio className="w-4 h-4 text-[#E5B82A]" />
+              <span>WebSocket Endpoints &amp; Two-Way Hardware Commands</span>
+            </h4>
+            <p className="text-[11px] text-[#84909A]">
+              Device WS URL: <code>ws://{detectedLanIp}:{listenPort}/</code> &bull; Browser Live Stream: <code>ws://localhost:{listenPort}/ws/live</code>
+            </p>
+          </div>
+          <span className="text-[11px] font-bold text-[#84909A]">
+            {wsDevices.length} Active Hardware WS Session(s)
+          </span>
+        </div>
+
+        {wsCmdFeedback && (
+          <div
+            className={`p-2.5 rounded-xl text-xs font-semibold border flex items-start gap-2 ${
+              wsCmdFeedback.ok
+                ? 'bg-[#36A875]/10 border-[#36A875]/30 text-[#237A54]'
+                : 'bg-[#DC5555]/10 border-[#DC5555]/30 text-[#DC5555]'
+            }`}
+          >
+            {wsCmdFeedback.ok ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            )}
+            <span className="break-all font-mono">{wsCmdFeedback.text}</span>
+          </div>
+        )}
+
+        {wsDevices.length === 0 ? (
+          <p className="text-xs text-[#84909A]">
+            No biometric machine is currently holding an open WebSocket session. If your Secureye model uses ADMS HTTP Push, punches still stream live to this page over <code>/ws/live</code>. If your model uses WebSocket push (<code>cmd: &quot;reg&quot; / &quot;sendlog&quot;</code>), point it to <code>{detectedLanIp}:{listenPort}</code> and two-way controls will appear here automatically.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {wsDevices.map((d) => (
+              <div
+                key={d.serial_number}
+                className="p-3 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs"
+              >
+                <div>
+                  <p className="font-mono font-black text-[#252A30]">
+                    SN: {d.serial_number}{' '}
+                    <span className="text-[10px] font-bold text-[#36A875]">(WS OPEN)</span>
+                  </p>
+                  <p className="text-[10px] text-[#84909A] font-mono">
+                    IP: {d.remote_ip} &bull; Path: {d.path} &bull; Connected: {fmtTime(d.connected_at)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSendWsCmd(d.serial_number, { cmd: 'getnewlog', stn: true })}
+                    className="px-2.5 py-1.5 rounded-lg bg-[#252A30] text-[#FFD447] font-bold text-[11px] inline-flex items-center gap-1"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Pull New Logs</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSendWsCmd(d.serial_number, { cmd: 'getalllog', stn: true })}
+                    className="px-2.5 py-1.5 rounded-lg bg-white border border-[#DCE3E8] text-[#252A30] font-bold text-[11px]"
+                  >
+                    Pull All Logs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSendWsCmd(d.serial_number, { cmd: 'opendoor' })}
+                    className="px-2.5 py-1.5 rounded-lg bg-[#36A875] text-white font-bold text-[11px]"
+                  >
+                    Unlock Door
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Devices List + Quick Registration */}

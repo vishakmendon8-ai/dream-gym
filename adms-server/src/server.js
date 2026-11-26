@@ -19,6 +19,7 @@
  */
 
 import 'dotenv/config';
+import http from 'http';
 import express from 'express';
 import cors from 'cors';
 import net from 'net';
@@ -43,6 +44,7 @@ import {
   getLocalLanIps,
   probeSecureyeDevice,
 } from './lanProbe.js';
+import { createWsHub } from './wsHub.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,7 +55,9 @@ const P2P_CAPTURE_PORT = Number(process.env.P2P_CAPTURE_PORT || 0);
 const API_AUTH_TOKEN = (process.env.API_AUTH_TOKEN || '').trim();
 
 const app = express();
+const httpServer = http.createServer(app);
 const db = new AdmsDatabase();
+const wsHub = createWsHub({ server: httpServer, db, apiAuthToken: API_AUTH_TOKEN });
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -125,6 +129,15 @@ async function recordAdmsDebugLog(req, rawBody, statusCode = 200) {
       rawBody,
       responseStatus: statusCode,
     });
+    wsHub.broadcastLive('raw_packet', {
+      method: req.method,
+      path: req.path,
+      query_string: queryString,
+      device_sn: sn,
+      remote_ip: remoteIp,
+      raw_body: rawBody,
+      received_at: new Date().toISOString(),
+    });
   } catch (err) {
     console.error('[ADMS] Failed to save raw request log:', err.message);
   }
@@ -143,12 +156,18 @@ app.get('/iclock/cdata', async (req, res) => {
 
   if (sn) {
     try {
-      await db.upsertDeviceHeartbeat({
+      const device = await db.upsertDeviceHeartbeat({
         serialNumber: sn,
         ipAddress: remoteIp,
         pushVersion: pushVer,
       });
       await syncDeviceHeartbeatToFirestore({ serialNumber: sn, ipAddress: remoteIp });
+      wsHub.broadcastLive('device_heartbeat', {
+        serial_number: sn,
+        ip_address: remoteIp,
+        protocol: 'adms_http',
+        device,
+      });
     } catch (err) {
       console.error('[ADMS GET /iclock/cdata] DB error:', err.message);
     }
@@ -175,11 +194,17 @@ app.post('/iclock/cdata', async (req, res) => {
   await recordAdmsDebugLog(req, rawBody, 200);
 
   try {
-    await db.upsertDeviceHeartbeat({
+    const device = await db.upsertDeviceHeartbeat({
       serialNumber: sn,
       ipAddress: remoteIp,
     });
     await syncDeviceHeartbeatToFirestore({ serialNumber: sn, ipAddress: remoteIp });
+    wsHub.broadcastLive('device_heartbeat', {
+      serial_number: sn,
+      ip_address: remoteIp,
+      protocol: 'adms_http',
+      device,
+    });
 
     if (table === 'ATTLOG' || table === 'RTLOG' || (!table && rawBody.includes('\t'))) {
       const { records, skipped } = parseAttLogPayload(rawBody);
@@ -202,11 +227,22 @@ app.post('/iclock/cdata', async (req, res) => {
           console.log(
             `[PUNCH SAVED] SN=${sn} | User=${rec.employeeCode} | Time=${rec.punchTime} | State=${rec.punchStateLabel} | Mode=${rec.verifyModeLabel}`
           );
-          await syncPunchToFirestore({
+          const fbRes = await syncPunchToFirestore({
             deviceSn: sn,
             employeeCode: rec.employeeCode,
             punchTime: rec.punchTime,
             verifyModeLabel: rec.verifyModeLabel,
+          });
+          wsHub.broadcastLive('attendance_punch', {
+            device_sn: sn,
+            employee_code: rec.employeeCode,
+            punch_time: rec.punchTime,
+            punch_state: rec.punchState,
+            punch_state_label: rec.punchStateLabel,
+            verify_mode: rec.verifyMode,
+            verify_mode_label: rec.verifyModeLabel,
+            protocol: 'adms_http',
+            granted: fbRes?.granted ?? null,
           });
         } else if (result.duplicate) {
           duplicateCount += 1;
@@ -248,11 +284,17 @@ app.get('/iclock/getrequest', async (req, res) => {
 
   if (sn) {
     try {
-      await db.upsertDeviceHeartbeat({
+      const device = await db.upsertDeviceHeartbeat({
         serialNumber: sn,
         ipAddress: remoteIp,
       });
       await syncDeviceHeartbeatToFirestore({ serialNumber: sn, ipAddress: remoteIp });
+      wsHub.broadcastLive('device_heartbeat', {
+        serial_number: sn,
+        ip_address: remoteIp,
+        protocol: 'adms_http',
+        device,
+      });
     } catch (err) {
       console.error('[ADMS GET /iclock/getrequest] DB error:', err.message);
     }
@@ -306,11 +348,32 @@ app.get('/health', async (_req, res) => {
       listenPort: PORT,
       lanIps: lanIps.map((item) => item.address),
       lanInterfaces: lanIps,
+      websocketEnabled: true,
+      wsLivePath: '/ws/live',
+      liveClients: wsHub.getLiveClientCount(),
+      connectedWsDevices: wsHub.listConnectedWsDevices(),
       serverTime: new Date().toISOString(),
     });
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message });
   }
+});
+
+app.get('/api/ws/devices', requireApiAuth, (_req, res) => {
+  const connected = wsHub.listConnectedWsDevices();
+  res.status(200).json({ ok: true, count: connected.length, devices: connected });
+});
+
+app.post('/api/ws/send', requireApiAuth, (req, res) => {
+  const { serial_number, command } = req.body || {};
+  if (!serial_number || !command) {
+    return res.status(400).json({ ok: false, error: 'serial_number and command are required.' });
+  }
+  const result = wsHub.sendCommandToWsDevice(serial_number, command);
+  if (!result.ok) {
+    return res.status(404).json(result);
+  }
+  return res.status(200).json(result);
 });
 
 app.get('/api/lan/probe', requireApiAuth, async (req, res) => {
@@ -423,23 +486,24 @@ app.get('/api/debug/raw', requireApiAuth, async (req, res) => {
 // Live Monitoring Dashboard (Static HTML)
 app.use('/', express.static(path.join(__dirname, '../public')));
 
-// Boot Server
+// Boot Server (HTTP + WebSocket on shared PORT)
 async function start() {
   await db.init();
   initFirebaseSync();
 
-  app.listen(PORT, HOST, () => {
+  httpServer.listen(PORT, HOST, () => {
     const lanIps = getLocalLanIps();
     const primaryLanIp = lanIps[0]?.address || '<THIS_PC_LAN_IP>';
 
     console.log('===================================================================');
-    console.log('Dream Gym — Secureye ADMS / Local LAN Bridge Ready');
-    console.log(`Listening on       : http://${HOST}:${PORT}`);
+    console.log('Dream Gym — Secureye ADMS + WebSocket Local LAN Bridge Ready');
+    console.log(`HTTP + WS Server   : http://${HOST}:${PORT}`);
     console.log(`This PC LAN IP(s)  : ${lanIps.length ? lanIps.map((i) => `${i.address} (${i.interface})`).join(', ') : 'Not detected'}`);
     console.log(`Database Engine    : ${db.mode.toUpperCase()}`);
     console.log(`Firebase Sync      : ${isFirebaseSyncEnabled() ? 'ENABLED (gym001-50a97)' : 'Disabled (add serviceAccountKey.json to sync live to Dream Gym)'}`);
-    console.log(`ADMS Endpoints     : GET/POST /iclock/cdata, GET /iclock/getrequest, POST /iclock/devicecmd`);
-    console.log(`REST API           : GET /api/attendance, GET/POST /api/devices, GET /api/lan/probe, GET /api/debug/raw`);
+    console.log(`ADMS HTTP Push     : http://${primaryLanIp}:${PORT}/iclock/cdata`);
+    console.log(`Device WebSocket   : ws://${primaryLanIp}:${PORT}/`);
+    console.log(`Dream Gym Live WS  : ws://localhost:${PORT}/ws/live`);
     console.log(`Live Dashboard     : http://localhost:${PORT}/`);
     console.log('-------------------------------------------------------------------');
     console.log('CONFIGURE YOUR SECUREYE MACHINE (Menu -> Comm. -> Cloud Server / ADMS):');

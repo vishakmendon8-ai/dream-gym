@@ -11,6 +11,14 @@ export interface AdmsLanInterface {
   netmask: string;
 }
 
+export interface ConnectedWsDevice {
+  serial_number: string;
+  remote_ip: string;
+  path: string;
+  connected_at: string;
+  last_message_at: string;
+}
+
 export interface AdmsServerHealth {
   ok: boolean;
   service?: string;
@@ -21,6 +29,10 @@ export interface AdmsServerHealth {
   listenPort?: number;
   lanIps?: string[];
   lanInterfaces?: AdmsLanInterface[];
+  websocketEnabled?: boolean;
+  wsLivePath?: string;
+  liveClients?: number;
+  connectedWsDevices?: ConnectedWsDevice[];
   serverTime?: string;
   error?: string;
 }
@@ -220,5 +232,38 @@ export async function fetchAdmsRawLogs(
     return { ok: true, logs: data.logs || [] };
   } catch (err: any) {
     return { ok: false, logs: [], error: err?.message || 'Failed to fetch raw logs.' };
+  }
+}
+
+export function buildBridgeWsUrl(baseUrl: string, apiToken?: string): string | null {
+  try {
+    const u = new URL(cleanBase(baseUrl));
+    const wsProtocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    const tokenParam = apiToken && apiToken.trim() ? `?token=${encodeURIComponent(apiToken.trim())}` : '';
+    return `${wsProtocol}//${u.host}/ws/live${tokenParam}`;
+  } catch {
+    return null;
+  }
+}
+
+export async function sendWsDeviceCommand(
+  baseUrl: string,
+  serialNumber: string,
+  command: Record<string, unknown> | string,
+  apiToken?: string
+): Promise<{ ok: boolean; sent?: string; error?: string }> {
+  try {
+    const resp = await fetch(`${cleanBase(baseUrl)}/api/ws/send`, {
+      method: 'POST',
+      headers: buildHeaders(apiToken),
+      body: JSON.stringify({ serial_number: serialNumber, command }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      return { ok: false, error: data.error || `HTTP ${resp.status}` };
+    }
+    return { ok: true, sent: data.sent };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Failed to send WebSocket command.' };
   }
 }
