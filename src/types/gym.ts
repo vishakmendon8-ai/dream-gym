@@ -74,6 +74,10 @@ export interface AttendanceRecord {
   status: 'granted' | 'denied' | 'flagged';
   reason?: string;
   terminalId: string;
+  deviceSn?: string;
+  biometricUserId?: string;
+  verifyMode?: string;
+  source?: string;
 }
 
 export interface AccessLog {
@@ -85,6 +89,21 @@ export interface AccessLog {
   status: 'granted' | 'denied';
   reason?: string;
   terminalId: string;
+  deviceSn?: string;
+  biometricUserId?: string;
+  source?: string;
+}
+
+export interface BiometricSyncLog {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  eventType: string;
+  deviceSn?: string | null;
+  biometricUserId?: string | null;
+  memberId?: string | null;
+  message: string;
+  details?: string | null;
 }
 
 export interface PaymentRecord {

@@ -1,0 +1,22 @@
+{
+  "name": "dream-gym-adms-bridge",
+  "version": "1.1.0",
+  "description": "Local LAN Bridge & ZKTeco/Secureye ADMS HTTP Push server for Dream Gym with SQLite/PostgreSQL storage, LAN TCP/IP probe, and live Firebase Firestore sync",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "probe": "node src/lanProbe.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.4.0",
+    "pg": "^8.13.3"
+  }
+}

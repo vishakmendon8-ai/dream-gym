@@ -75,6 +75,29 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Live Access Logs Collection
+    match /access_logs/{logId} {
+      allow read: if isAdmin() || isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Biometric Devices Registry (No raw passwords stored here)
+    match /biometric_devices/{deviceId} {
+      allow read: if isAdmin() || isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Biometric Synchronization & Diagnostic Logs (Written by Admin SDK / Bridge)
+    match /biometric_sync_logs/{logId} {
+      allow read: if isAdmin() || isAuthenticated();
+      allow write: if false;
+    }
+
+    // Biometric Duplicate Event Protection Keys (Backend Admin SDK only)
+    match /biometric_event_dedup/{eventKey} {
+      allow read, write: if false;
+    }
+
     // Biometric Terminals & Simulator State
     match /terminals/{terminalId} {
       allow read: if isAuthenticated();
@@ -87,11 +110,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Development & Simulation Sandbox Rule
-    // NOTE: When in initial setup or testing without Firebase Auth tokens,
-    // you can temporarily use open read/write during prototyping:
-    // match /{document=**} {
-    //   allow read, write: if true;
-    // }
+    // Admin Users Allowlist
+    match /admins/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if false;
+    }
   }
 }

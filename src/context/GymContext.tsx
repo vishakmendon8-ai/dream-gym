@@ -7,9 +7,10 @@ import {
   AttendanceRecord, 
   AccessLog, 
   PaymentRecord, 
-  NotificationItem, 
-  AdminProfile, 
-  AdminTab 
+  NotificationItem,
+  AdminProfile,
+  AdminTab,
+  BiometricSyncLog
 } from '../types/gym';
 import { 
   ADMIN_PROFILE, 
@@ -22,7 +23,16 @@ import {
   INITIAL_NOTIFICATIONS 
 } from '../data/initialData';
 import { db } from '../firebase';
-import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  limit
+} from 'firebase/firestore';
 
 const STORAGE_KEYS = {
   members: 'dreamgym_members_v1',
@@ -74,6 +84,7 @@ interface GymContextType {
   accessLogs: AccessLog[];
   payments: PaymentRecord[];
   notifications: NotificationItem[];
+  biometricSyncLogs: BiometricSyncLog[];
 
   // Selected Member
   selectedMember: Member | null;
@@ -98,7 +109,8 @@ interface GymContextType {
   // Actions: Payments
   recordPayment: (paymentData: Omit<PaymentRecord, 'id' | 'invoiceNumber'>) => Promise<PaymentRecord>;
 
-  // Actions: Biometric (Simulation Mode)
+  // Actions: Biometric (Hardware Mapping & Simulation Mode)
+  linkMemberBiometricId: (memberId: string, biometricId: string) => Promise<{ ok: boolean; error?: string }>;
   saveBiometricEnrollment: (memberId: string, token: string, samples: { sample1: boolean; sample2: boolean; sample3: boolean }) => Promise<void>;
   deleteBiometricEnrollment: (memberId: string) => Promise<void>;
 
@@ -142,11 +154,78 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [accessLogs, setAccessLogs] = useState<AccessLog[]>(INITIAL_ACCESS_LOGS);
   const [payments, setPayments] = useState<PaymentRecord[]>(() => loadFromStorage(STORAGE_KEYS.payments, INITIAL_PAYMENTS));
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [biometricSyncLogs, setBiometricSyncLogs] = useState<BiometricSyncLog[]>([]);
   const [selectedMember, setSelectedMember] = useState<Member | null>(() => loadFromStorage(STORAGE_KEYS.members, INITIAL_MEMBERS)[0] || null);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [firebaseConnected, setFirebaseConnected] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Real-time Firestore subscriptions for Secureye biometric attendance, access logs, and sync logs
+  useEffect(() => {
+    const unsubs: Array<() => void> = [];
+
+    try {
+      const attQuery = query(collection(db, 'attendance'), orderBy('createdAt', 'desc'), limit(100));
+      unsubs.push(
+        onSnapshot(
+          attQuery,
+          (snap) => {
+            if (snap.empty) return;
+            const liveRows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AttendanceRecord, 'id'>) }));
+            setAttendance((prev) => {
+              const seen = new Set(liveRows.map((r) => r.id));
+              const localOnly = prev.filter((r) => !seen.has(r.id));
+              return [...liveRows, ...localOnly];
+            });
+            setFirebaseConnected(true);
+          },
+          () => {
+            // Keep working gracefully with local state if Firestore rules require auth
+          }
+        )
+      );
+    } catch {}
+
+    try {
+      const logsQuery = query(collection(db, 'access_logs'), orderBy('createdAt', 'desc'), limit(60));
+      unsubs.push(
+        onSnapshot(
+          logsQuery,
+          (snap) => {
+            if (snap.empty) return;
+            const liveLogs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AccessLog, 'id'>) }));
+            setAccessLogs((prev) => {
+              const seen = new Set(liveLogs.map((l) => l.id));
+              const localOnly = prev.filter((l) => !seen.has(l.id));
+              return [...liveLogs, ...localOnly];
+            });
+          },
+          () => {}
+        )
+      );
+    } catch {}
+
+    try {
+      const syncQuery = query(collection(db, 'biometric_sync_logs'), orderBy('createdAt', 'desc'), limit(50));
+      unsubs.push(
+        onSnapshot(
+          syncQuery,
+          (snap) => {
+            const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<BiometricSyncLog, 'id'>) }));
+            setBiometricSyncLogs(rows);
+          },
+          () => {}
+        )
+      );
+    } catch {}
+
+    return () => {
+      unsubs.forEach((u) => {
+        try { u(); } catch {}
+      });
+    };
+  }, []);
 
   // Persist collections to localStorage and sync across tabs (Admin <-> Member App)
   useEffect(() => {
@@ -372,13 +451,42 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Update Member
   const updateMember = async (memberId: string, memberData: Partial<Member>) => {
+    const existing = members.find(m => m.id === memberId);
+    const merged = existing ? { ...existing, ...memberData } : memberData;
     setMembers(prev => prev.map(m => m.id === memberId ? { ...m, ...memberData } : m));
     if (selectedMember?.id === memberId) {
       setSelectedMember(prev => prev ? { ...prev, ...memberData } : null);
     }
     try {
-      await updateDoc(doc(db, 'members', memberId), memberData);
+      await setDoc(doc(db, 'members', memberId), merged, { merge: true });
     } catch {}
+  };
+
+  // Link a Gym Member to their exact Secureye Biometric Machine User ID (e.g. "101")
+  const linkMemberBiometricId = async (
+    memberId: string,
+    biometricId: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const cleanId = biometricId.trim();
+    if (!cleanId) {
+      return { ok: false, error: 'Enter the numeric User ID enrolled on the Secureye machine (e.g. 1, 101).' };
+    }
+    const conflict = members.find(
+      (m) => m.id !== memberId && (m.biometricId || '').trim().toLowerCase() === cleanId.toLowerCase()
+    );
+    if (conflict) {
+      return {
+        ok: false,
+        error: `Secureye User ID "${cleanId}" is already assigned to ${conflict.name} (${conflict.id}).`,
+      };
+    }
+
+    await updateMember(memberId, {
+      biometricId: cleanId,
+      biometricRegistered: true,
+      biometricEnrolled: true,
+    });
+    return { ok: true };
   };
 
   // Delete Member
@@ -482,7 +590,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSubscriptions(prev => prev.map(s => s.planId === planId ? { ...s, planName: planData.name! } : s));
     }
     try {
-      await updateDoc(doc(db, 'plans', planId), planData);
+      await setDoc(doc(db, 'plans', planId), planData, { merge: true });
     } catch {}
   };
 
@@ -795,6 +903,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       accessLogs,
       payments,
       notifications,
+      biometricSyncLogs,
       selectedMember,
       setSelectedMember,
       addMember,
@@ -808,6 +917,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       renewSubscription,
       deactivateSubscription,
       recordPayment,
+      linkMemberBiometricId,
       saveBiometricEnrollment,
       deleteBiometricEnrollment,
       simulateAccessScan,
