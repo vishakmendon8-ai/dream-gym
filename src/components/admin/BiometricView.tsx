@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useGym } from '../../context/GymContext';
 import { useUsbBiometric } from '../../hooks/useUsbBiometric';
 import { AdmsBackendPanel } from './AdmsBackendPanel';
+import { BiometricManagementPanel } from './BiometricManagementPanel';
 import {
   Fingerprint,
   CheckCircle2,
@@ -16,11 +17,12 @@ import {
   Server,
   Users,
   Link2,
+  Cloud,
   CloudUpload,
   Activity,
 } from 'lucide-react';
 
-type BiometricSubTab = 'secureye_bridge' | 'member_mapping' | 'usb_enrollment';
+type BiometricSubTab = 'cloud_biometric' | 'member_mapping' | 'secureye_bridge' | 'usb_enrollment';
 
 export const BiometricView: React.FC = () => {
   const {
@@ -36,7 +38,7 @@ export const BiometricView: React.FC = () => {
     playAccessTone,
   } = useGym();
 
-  const [activeSubTab, setActiveSubTab] = useState<BiometricSubTab>('secureye_bridge');
+  const [activeSubTab, setActiveSubTab] = useState<BiometricSubTab>('cloud_biometric');
 
   // Member <-> Secureye User ID Mapping state
   const [mappingSearch, setMappingSearch] = useState('');
@@ -167,15 +169,15 @@ export const BiometricView: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setActiveSubTab('secureye_bridge')}
+            onClick={() => setActiveSubTab('cloud_biometric')}
             className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all ${
-              activeSubTab === 'secureye_bridge'
+              activeSubTab === 'cloud_biometric'
                 ? 'bg-[#252A30] text-[#FFD447] shadow-xs'
                 : 'bg-[#F5F6F2] text-[#252A30] hover:bg-[#EAECE6]'
             }`}
           >
-            <Server className="w-3.5 h-3.5" />
-            <span>Secureye LAN Bridge &amp; ADMS</span>
+            <Cloud className="w-3.5 h-3.5" />
+            <span>Biometric Management (Cloud Run WSS)</span>
           </button>
 
           <button
@@ -189,6 +191,19 @@ export const BiometricView: React.FC = () => {
           >
             <Users className="w-3.5 h-3.5" />
             <span>Member ↔ Machine User IDs ({members.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('secureye_bridge')}
+            className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all ${
+              activeSubTab === 'secureye_bridge'
+                ? 'bg-[#252A30] text-[#FFD447] shadow-xs'
+                : 'bg-[#F5F6F2] text-[#252A30] hover:bg-[#EAECE6]'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>ADMS / Local Bridge</span>
           </button>
 
           <button
@@ -221,6 +236,11 @@ export const BiometricView: React.FC = () => {
           <span>{soundEnabled ? 'Audio Chime ON' : 'Audio Muted'}</span>
         </button>
       </div>
+
+      {/* ================================================================= */}
+      {/* TAB 0: DEDICATED CLOUD RUN SECUREYE WEBSOCKET MANAGEMENT          */}
+      {/* ================================================================= */}
+      {activeSubTab === 'cloud_biometric' && <BiometricManagementPanel />}
 
       {/* ================================================================= */}
       {/* TAB 1: SECUREYE LOCAL LAN BRIDGE & ADMS SERVER                    */}

@@ -28,5 +28,6 @@ serviceAccountKey.json
 **/serviceAccountKey.json
 adms-server/.env
 adms-server/data/
+biometric-ws-server/.env
 .firebase/
 

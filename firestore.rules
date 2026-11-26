@@ -87,8 +87,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Biometric Synchronization & Diagnostic Logs (Written by Admin SDK / Bridge)
+    // Biometric Synchronization & Diagnostic Logs (Written by Admin SDK / Cloud Run Backend)
     match /biometric_sync_logs/{logId} {
+      allow read: if isAdmin() || isAuthenticated();
+      allow write: if false;
+    }
+
+    // Raw Secureye WebSocket Diagnostic Frames (Text, JSON, Binary)
+    match /biometric_raw_diagnostics/{diagId} {
       allow read: if isAdmin() || isAuthenticated();
       allow write: if false;
     }

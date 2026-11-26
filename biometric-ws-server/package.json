@@ -1,0 +1,22 @@
+{
+  "name": "dream-gym-biometric-ws-server",
+  "version": "1.0.0",
+  "description": "Dedicated Google Cloud Run WebSocket (/biometric) backend & diagnostic receiver for Secureye biometric terminals with Firebase Firestore integration",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "verify": "node src/verifyHandshake.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "firebase-admin": "^13.4.0",
+    "ws": "^8.18.1"
+  }
+}
