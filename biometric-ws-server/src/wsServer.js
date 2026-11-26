@@ -111,17 +111,10 @@ export function attachBiometricWebSocketServer({ httpServer, store }) {
   }, config.heartbeatIntervalMs);
   if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
 
-  // Route HTTP Upgrade strictly to /biometric or /ws/admin
+  // Route HTTP Upgrade: /ws/admin -> Admin Live Stream, /biometric (or / when device only takes IP+Port) -> Secureye
   httpServer.on('upgrade', (req, socket, head) => {
     const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = urlObj.pathname.replace(/\/+$/, '') || '/';
-
-    if (pathname === '/biometric') {
-      biometricWss.handleUpgrade(req, socket, head, (ws) => {
-        biometricWss.emit('connection', ws, req);
-      });
-      return;
-    }
 
     if (pathname === '/ws/admin') {
       if (config.biometricApiSecret) {
@@ -138,8 +131,9 @@ export function attachBiometricWebSocketServer({ httpServer, store }) {
       return;
     }
 
-    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-    socket.destroy();
+    biometricWss.handleUpgrade(req, socket, head, (ws) => {
+      biometricWss.emit('connection', ws, req);
+    });
   });
 
   // --------------------------------------------------------------------------

@@ -18,6 +18,7 @@
 
 import 'dotenv/config';
 import http from 'http';
+import os from 'os';
 import express from 'express';
 import cors from 'cors';
 import { config } from './config.js';
@@ -156,17 +157,38 @@ app.post('/api/biometric/disconnect', requireAdminSecret, async (req, res) => {
   return res.status(200).json(result);
 });
 
+function getLocalIpv4List() {
+  const ifaces = os.networkInterfaces();
+  const ips = [];
+  for (const list of Object.values(ifaces)) {
+    for (const addr of list || []) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        ips.push(addr.address);
+      }
+    }
+  }
+  ips.sort((a, b) => (a.startsWith('192.168.') ? -1 : b.startsWith('192.168.') ? 1 : 0));
+  return ips;
+}
+
 async function start() {
   await store.init();
 
   httpServer.listen(config.port, config.host, () => {
+    const lanIps = getLocalIpv4List();
+    const serverIp = lanIps[0] || '<THIS_PC_IP>';
     console.log('===================================================================');
     console.log('Dream Gym — Dedicated Secureye Biometric WebSocket Server Ready');
     console.log(`Listening on       : http://${config.host}:${config.port}`);
-    console.log(`WebSocket Endpoint : /biometric (Standard WS / Cloud Run WSS)`);
+    console.log(`WebSocket Endpoint : /biometric (and / for IP+Port clients)`);
     console.log(`Admin Live Stream  : /ws/admin`);
     console.log(`Firebase Project   : ${config.firebaseProjectId} (${store.authMode})`);
     console.log(`Expected Device SN : ${config.defaultDevice.serialNumber} (Cloud ID: ${config.defaultDevice.cloudId})`);
+    console.log('-------------------------------------------------------------------');
+    console.log('ENTER ON YOUR SECUREYE MACHINE (Communication -> Web Server):');
+    console.log(`  Server Address   : ${serverIp}`);
+    console.log(`  Port Number      : ${config.port}`);
+    console.log(`  Web Server URL   : ws://${serverIp}:${config.port}/biometric`);
     console.log('===================================================================');
   });
 }
