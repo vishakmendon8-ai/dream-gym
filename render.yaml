@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: dream-gym-biometric-ws
+    runtime: docker
+    rootDir: biometric-ws-server
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FIREBASE_PROJECT_ID
+        value: gym001-50a97
+      - key: DEVICE_TIMEZONE_OFFSET
+        value: "5.5"
