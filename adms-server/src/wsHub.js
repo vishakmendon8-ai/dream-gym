@@ -73,10 +73,37 @@ export function createWsHub({ server, db, apiAuthToken = '' }) {
     }
   }
 
+  // 25s WebSocket Ping/Pong keepalive so Google Cloud Run load balancer never drops idle connections
+  const keepaliveTimer = setInterval(() => {
+    for (const ws of liveClients) {
+      if (ws.isAlive === false) {
+        liveClients.delete(ws);
+        try { ws.terminate(); } catch {}
+        continue;
+      }
+      ws.isAlive = false;
+      try { ws.ping(); } catch {}
+    }
+    for (const [sn, entry] of wsDevices.entries()) {
+      if (entry.socket.readyState !== WebSocket.OPEN) {
+        wsDevices.delete(sn);
+        continue;
+      }
+      if (entry.socket.isAlive === false) {
+        wsDevices.delete(sn);
+        try { entry.socket.terminate(); } catch {}
+        continue;
+      }
+      entry.socket.isAlive = false;
+      try { entry.socket.ping(); } catch {}
+    }
+  }, 25_000);
+  if (typeof keepaliveTimer.unref === 'function') keepaliveTimer.unref();
+
   // Handle HTTP Upgrade requests on the shared HTTP server
   server.on('upgrade', (req, socket, head) => {
     const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    const pathname = urlObj.pathname;
+    const pathname = urlObj.pathname.replace(/\/+$/, '') || '/';
 
     if (pathname === '/ws/live') {
       if (apiAuthToken) {
@@ -93,7 +120,7 @@ export function createWsHub({ server, db, apiAuthToken = '' }) {
       return;
     }
 
-    // Any other WebSocket path is treated as an incoming biometric hardware WebSocket
+    // Explicit /biometric endpoint (plus root / or custom device WS paths) for Secureye WebSocket clients
     deviceWss.handleUpgrade(req, socket, head, (ws) => {
       deviceWss.emit('connection', ws, req);
     });
@@ -103,6 +130,10 @@ export function createWsHub({ server, db, apiAuthToken = '' }) {
   // 1. Browser Live Stream Connections (/ws/live)
   // --------------------------------------------------------------------------
   liveWss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
     liveClients.add(ws);
     ws.send(
       JSON.stringify({
@@ -110,6 +141,7 @@ export function createWsHub({ server, db, apiAuthToken = '' }) {
         timestamp: new Date().toISOString(),
         data: {
           message: 'Connected to Dream Gym live WebSocket stream.',
+          biometricEndpoint: '/biometric',
           connectedWsDevices: listConnectedWsDevices(),
         },
       })
@@ -133,19 +165,24 @@ export function createWsHub({ server, db, apiAuthToken = '' }) {
   });
 
   // --------------------------------------------------------------------------
-  // 2. Biometric Machine WebSocket Connections (/, /ws, /pub/chat, etc.)
+  // 2. Biometric Machine WebSocket Connections (/biometric, /, /ws, etc.)
   // --------------------------------------------------------------------------
   deviceWss.on('connection', (ws, req) => {
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+
     const remoteIp =
       (typeof req.headers['x-forwarded-for'] === 'string'
         ? req.headers['x-forwarded-for'].split(',')[0].trim()
         : null) ||
       req.socket?.remoteAddress ||
       'unknown';
-    const reqPath = req.url || '/';
+    const reqPath = req.url || '/biometric';
     let boundSn = null;
 
-    console.log(`[WS-DEVICE] Connected from ${remoteIp} on ${reqPath}`);
+    console.log(`[WS-DEVICE] Handshake complete from ${remoteIp} on ${reqPath}`);
 
     ws.on('message', async (rawBuf) => {
       const rawText = rawBuf.toString('utf8').replace(/\0/g, '').trim();

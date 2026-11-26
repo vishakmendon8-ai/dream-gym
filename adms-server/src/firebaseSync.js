@@ -37,8 +37,32 @@ export function initFirebaseSync() {
   }
 
   if (!serviceAccount) {
+    // On Google Cloud Run (K_SERVICE is automatically set), use Application Default Credentials
+    if (process.env.K_SERVICE || process.env.USE_GCP_ADC === 'true') {
+      try {
+        const projectId =
+          process.env.FIREBASE_PROJECT_ID ||
+          process.env.GOOGLE_CLOUD_PROJECT ||
+          'gym001-50a97';
+        if (!admin.apps.length) {
+          admin.initializeApp({
+            credential: admin.credential.applicationDefault(),
+            projectId,
+          });
+        }
+        firestoreDb = admin.firestore();
+        console.log(
+          `[FirebaseSync] Enabled via Cloud Run Application Default Credentials for project "${projectId}".`
+        );
+        return true;
+      } catch (err) {
+        console.error('[FirebaseSync] Cloud Run ADC initialization failed:', err.message);
+        return false;
+      }
+    }
+
     console.log(
-      '[FirebaseSync] Disabled (place serviceAccountKey.json inside adms-server/ or set FIREBASE_SERVICE_ACCOUNT_PATH to mirror punches live into Dream Gym Firestore).'
+      '[FirebaseSync] Disabled (place serviceAccountKey.json inside adms-server/ or deploy on Cloud Run to mirror punches live into Dream Gym Firestore).'
     );
     return false;
   }

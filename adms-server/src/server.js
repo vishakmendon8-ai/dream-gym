@@ -349,7 +349,9 @@ app.get('/health', async (_req, res) => {
       lanIps: lanIps.map((item) => item.address),
       lanInterfaces: lanIps,
       websocketEnabled: true,
+      wsBiometricPath: '/biometric',
       wsLivePath: '/ws/live',
+      cloudRun: Boolean(process.env.K_SERVICE),
       liveClients: wsHub.getLiveClientCount(),
       connectedWsDevices: wsHub.listConnectedWsDevices(),
       serverTime: new Date().toISOString(),
@@ -357,6 +359,17 @@ app.get('/health', async (_req, res) => {
   } catch (err) {
     res.status(503).json({ ok: false, error: err.message });
   }
+});
+
+// Plain HTTP request to /biometric informs callers to upgrade to WebSocket (RFC 6455)
+app.get('/biometric', (_req, res) => {
+  res.status(426).json({
+    ok: false,
+    error: 'Upgrade Required',
+    protocol: 'websocket',
+    endpoint: '/biometric',
+    message: 'This endpoint accepts Secureye WebSocket client connections (wss://<HOST>/biometric).',
+  });
 });
 
 app.get('/api/ws/devices', requireApiAuth, (_req, res) => {
