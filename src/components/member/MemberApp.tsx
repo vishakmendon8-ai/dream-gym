@@ -108,7 +108,7 @@ export const MemberApp: React.FC = () => {
     healthNotes: 'Focus on Upper Body Strength & Hypertrophy'
   };
 
-  // Check if session exists in localStorage, or URL param ?screen=...
+  // Always launch with the animated splash screen unless a deep-link ?screen= is provided
   const getInitialScreen = (): MemberScreen => {
     if (typeof window === 'undefined') return 'splash';
     const params = new URLSearchParams(window.location.search);
@@ -119,15 +119,6 @@ export const MemberApp: React.FC = () => {
       }
       return screenParam;
     }
-
-    const savedMemberId = localStorage.getItem('gympro_member_session');
-    if (savedMemberId) {
-      const existing = members.find(m => m.id === savedMemberId);
-      if (existing) {
-        return 'home';
-      }
-    }
-    // New or unauthenticated visitor starts directly at the single splash screen
     return 'splash';
   };
 
@@ -151,11 +142,8 @@ export const MemberApp: React.FC = () => {
     }
   }, [members, currentMember.id]);
 
-  // Active Screen: Starts from splash if new, or home if already logged in
+  // Active Screen: Always starts with animated splash screen on launch
   const [currentScreen, setCurrentScreen] = useState<MemberScreen>(getInitialScreen);
-  
-  // Single Splash Screen States: Kinetic Progress & App Entrance
-  const [splashProgress, setSplashProgress] = useState(0);
   const [enteringApp, setEnteringApp] = useState(false);
 
   const handleEnterApp = () => {
@@ -163,7 +151,6 @@ export const MemberApp: React.FC = () => {
     setEnteringApp(true);
     setTimeout(() => {
       setEnteringApp(false);
-      setSplashProgress(0);
       const savedMemberId = typeof window !== 'undefined' ? localStorage.getItem('gympro_member_session') : null;
       if (savedMemberId) {
         const existing = members.find(m => m.id === savedMemberId);
@@ -174,30 +161,19 @@ export const MemberApp: React.FC = () => {
         }
       }
       setCurrentScreen('login');
-    }, 450);
+    }, 480);
   };
 
-  // Auto-progress kinetic entrance bar for splash screen
+  // Automatically enter the app once the logo bounce + DREAM GYM fire animation finishes
   useEffect(() => {
     if (currentScreen !== 'splash') return;
-    setSplashProgress(0);
     setEnteringApp(false);
 
-    let currentP = 0;
-    const interval = setInterval(() => {
-      currentP += 5;
-      if (currentP >= 100) {
-        setSplashProgress(100);
-        clearInterval(interval);
-        setTimeout(() => {
-          handleEnterApp();
-        }, 300);
-      } else {
-        setSplashProgress(currentP);
-      }
-    }, 95);
+    const timer = setTimeout(() => {
+      handleEnterApp();
+    }, 2450);
 
-    return () => clearInterval(interval);
+    return () => clearTimeout(timer);
   }, [currentScreen]);
 
 
@@ -349,53 +325,65 @@ export const MemberApp: React.FC = () => {
   const renderBottomNav = (_tab: any) => null;
 
   // ----------------------------------------------------
-  // ONE SPLASH SCREEN WITH DYNAMIC GYM ANIMATION & APP ENTRANCE
+  // MEMBER APP SPLASH SCREEN: LOGO BOUNCE-IN + FIRE "DREAM GYM"
   // ----------------------------------------------------
   const renderSplashScreen = () => {
-    const progressStatus = 
-      splashProgress < 35 ? 'Calibrating Biometric Gates...' :
-      splashProgress < 75 ? 'Syncing Cloud Workout Pass...' :
-      splashProgress < 100 ? 'Access Verified • Entering App...' :
-      'Welcome to Dream Gym!';
+    const flameLicks = [
+      { left: '8%', width: 28, height: 42, delay: '600ms', dur: '0.95s' },
+      { left: '22%', width: 34, height: 52, delay: '720ms', dur: '1.1s' },
+      { left: '38%', width: 38, height: 58, delay: '640ms', dur: '1.0s' },
+      { left: '54%', width: 36, height: 54, delay: '780ms', dur: '1.05s' },
+      { left: '70%', width: 32, height: 48, delay: '660ms', dur: '0.98s' },
+      { left: '84%', width: 26, height: 40, delay: '740ms', dur: '1.12s' },
+    ];
+
+    const embers = [
+      { left: '12%', size: 4, delay: '680ms', dur: '1.4s', drift: '10px' },
+      { left: '24%', size: 5, delay: '840ms', dur: '1.55s', drift: '-12px' },
+      { left: '35%', size: 3, delay: '740ms', dur: '1.35s', drift: '8px' },
+      { left: '46%', size: 6, delay: '920ms', dur: '1.6s', drift: '-9px' },
+      { left: '56%', size: 4, delay: '700ms', dur: '1.45s', drift: '14px' },
+      { left: '68%', size: 5, delay: '880ms', dur: '1.5s', drift: '-11px' },
+      { left: '79%', size: 3, delay: '780ms', dur: '1.3s', drift: '9px' },
+      { left: '88%', size: 4, delay: '960ms', dur: '1.55s', drift: '-8px' },
+    ];
 
     return (
-      <div className={`flex-1 flex flex-col justify-between bg-[#1B1E22] text-white relative overflow-hidden min-h-screen px-6 py-8 select-none transition-all duration-500 ${
-        enteringApp ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'
-      }`}>
-        {/* Ambient Moody Gym Backdrop */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center opacity-20 mix-blend-luminosity pointer-events-none scale-105"
-          style={{ backgroundImage: `url('https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1200&auto=format&fit=crop&q=80')` }}
+      <div
+        onClick={handleEnterApp}
+        className={`flex-1 flex flex-col items-center justify-center bg-[#0B0C0E] text-white relative overflow-hidden min-h-screen px-6 py-10 select-none cursor-pointer transition-all duration-500 ${
+          enteringApp ? 'opacity-0 scale-105 pointer-events-none' : 'opacity-100 scale-100'
+        }`}
+      >
+        {/* Deep Volcanic / Obsidian Radial Background */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(circle at 50% 44%, rgba(255, 132, 0, 0.22) 0%, rgba(220, 38, 38, 0.12) 28%, rgba(11, 12, 14, 0.98) 68%)',
+          }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#1B1E22]/95 via-[#252A30]/85 to-[#14171A] pointer-events-none" />
 
-        {/* Ambient Golden Radial Glow */}
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-[#FFD447]/15 blur-3xl pointer-events-none animate-gym-pulse" />
+        {/* Ambient Pulsing Fire Core Glow */}
+        <div className="absolute top-[52%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-gradient-to-t from-[#FF3B00]/30 via-[#FF8C00]/25 to-[#FFD447]/15 blur-3xl pointer-events-none animate-splash-fire-glow" />
 
-        {/* Top Header Row with Dream Gym Mark & Fast Skip Button */}
-        <div className="relative z-10 flex items-center justify-between pt-2">
-          <DreamGymLogo size="sm" isLight />
+        {/* CENTER STAGE: BOUNCING LOGO + FIERY "DREAM GYM" */}
+        <div className="relative z-10 flex flex-col items-center justify-center text-center">
+          {/* Logo Bounce Container + Impact Shockwave Ring */}
+          <div className="relative flex items-center justify-center w-48 h-48 sm:w-52 sm:h-52">
+            {/* Fiery Impact Shockwave triggered when logo bounces down */}
+            <div className="absolute inset-4 rounded-full border-2 border-[#FF8C00]/70 shadow-[0_0_24px_rgba(255,120,0,0.65)] animate-splash-impact-ring pointer-events-none" />
+            <div
+              className="absolute inset-6 rounded-full border border-[#FFD447]/55 animate-splash-impact-ring pointer-events-none"
+              style={{ animationDelay: '120ms' }}
+            />
 
-          <button
-            onClick={handleEnterApp}
-            className="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-bold backdrop-blur-md transition-all active:scale-95 flex items-center gap-1 border border-white/15"
-          >
-            <span>Skip</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+            {/* Soft Golden Backlight */}
+            <div className="absolute inset-6 rounded-full bg-gradient-to-tr from-[#FF4D00]/35 via-[#FFD447]/35 to-transparent blur-2xl pointer-events-none" />
 
-        {/* CENTER GYM ANIMATION: Dream Gym Emblem with Glowing Shockwaves */}
-        <div className="relative z-10 my-auto flex flex-col items-center justify-center py-6 select-none">
-          {/* Concentric Energy Shockwave Rings */}
-          <div className="relative flex items-center justify-center w-64 h-64">
-            <div className="absolute inset-2 rounded-full border-2 border-[#FFD447]/30 animate-gym-shockwave pointer-events-none" />
-            <div className="absolute inset-7 rounded-full border border-[#FFD447]/45 animate-gym-pulse pointer-events-none" />
-            <div className="absolute inset-12 rounded-full bg-gradient-to-b from-[#FFD447]/25 to-transparent blur-xl pointer-events-none" />
-
-            {/* DREAM GYM CREST EMBLEM */}
-            <div className="relative z-10 animate-gym-lift animate-gym-glow flex items-center justify-center">
-              <div className="w-44 h-44 rounded-3xl bg-black overflow-hidden shadow-[0_0_40px_rgba(255,212,71,0.35)] ring-2 ring-[#FFD447]/60">
+            {/* Bouncing Dream Gym Logo */}
+            <div className="relative z-10 animate-splash-logo-bounce">
+              <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-[28px] bg-black overflow-hidden shadow-[0_18px_45px_rgba(255,115,0,0.45)] ring-2 ring-[#FFD447]/80">
                 <img
                   src="/logo.png"
                   alt="Dream Gym Logo"
@@ -405,64 +393,61 @@ export const MemberApp: React.FC = () => {
             </div>
           </div>
 
-          {/* Dynamic Workout Power Waveform SVG */}
-          <div className="w-48 h-6 flex items-center justify-center -mt-1 opacity-85">
-            <svg viewBox="0 0 200 30" className="w-full h-full overflow-visible">
-              <path 
-                d="M0 15 H40 L50 3 L62 27 L74 7 L86 21 L96 15 H200" 
-                fill="none" 
-                stroke="#FFD447" 
-                strokeWidth="2.5" 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                className="animate-gym-waveform"
-              />
-            </svg>
-          </div>
-
-          {/* Slogan & Power Title */}
-          <div className="text-center mt-3 space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white uppercase leading-tight">
-              Dream <span className="text-[#FFD447]">Gym</span>
-            </h1>
-            <p className="text-xs text-cloud-grey/75 max-w-[280px] mx-auto font-medium leading-relaxed">
-              Biometric Optical Check-Ins • Real-Time Attendance • Seamless Membership
-            </p>
-          </div>
-        </div>
-
-        {/* BOTTOM SECTION: Kinetic Entrance Loading Bar & Getting in the App */}
-        <div className="relative z-10 w-full max-w-sm mx-auto space-y-4 pt-2">
-          {/* Live Kinetic Progress Bar */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between items-center text-[11px] font-bold">
-              <span className="text-white/80 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#FFD447] animate-ping" />
-                <span className="text-[#FFD447]">{progressStatus}</span>
-              </span>
-              <span className="font-mono text-white/70">{splashProgress}%</span>
+          {/* BELOW LOGO: "DREAM GYM" ENTERING WITH FIRE ANIMATION */}
+          <div className="relative mt-6 pt-4 pb-2 px-4">
+            {/* Rising Flame Tongues behind text */}
+            <div className="absolute inset-x-0 bottom-2 h-16 pointer-events-none overflow-visible">
+              {flameLicks.map((f, idx) => (
+                <span
+                  key={idx}
+                  className="absolute bottom-0 rounded-full blur-[7px] animate-splash-flame"
+                  style={
+                    {
+                      left: f.left,
+                      width: `${f.width}px`,
+                      height: `${f.height}px`,
+                      background:
+                        'radial-gradient(ellipse at 50% 80%, #FFF3B0 0%, #FFB703 30%, #FF5400 65%, rgba(220,38,38,0) 100%)',
+                      '--flame-delay': f.delay,
+                      '--flame-dur': f.dur,
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
             </div>
 
-            <div className="h-2 rounded-full bg-white/10 overflow-hidden p-0.5 border border-white/15">
-              <div 
-                className="h-full rounded-full bg-gradient-to-r from-[#FFE37A] via-[#FFD447] to-[#F5C227] transition-all duration-150 ease-out shadow-[0_0_12px_rgba(255,212,71,0.6)]"
-                style={{ width: `${splashProgress}%` }}
-              />
+            {/* Rising Glowing Ember Sparks */}
+            <div className="absolute inset-x-0 bottom-3 h-28 pointer-events-none overflow-visible">
+              {embers.map((e, idx) => (
+                <span
+                  key={idx}
+                  className="absolute bottom-0 rounded-full animate-splash-ember"
+                  style={
+                    {
+                      left: e.left,
+                      width: `${e.size}px`,
+                      height: `${e.size}px`,
+                      background: '#FFE066',
+                      boxShadow: '0 0 8px #FF8C00, 0 0 14px #FF3B00',
+                      '--ember-delay': e.delay,
+                      '--ember-dur': e.dur,
+                      '--ember-drift': e.drift,
+                    } as React.CSSProperties
+                  }
+                />
+              ))}
             </div>
+
+            {/* Blazing "DREAM GYM" Wordmark */}
+            <div className="relative z-10 animate-splash-fire-enter">
+              <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-[0.12em] leading-none splash-fire-text">
+                DREAM GYM
+              </h1>
+            </div>
+
+            {/* Molten Fire Underline Streak */}
+            <div className="relative z-10 mt-3 mx-auto h-[3px] w-44 rounded-full bg-gradient-to-r from-transparent via-[#FF7A00] to-transparent shadow-[0_0_16px_rgba(255,115,0,0.95)] animate-splash-fire-streak" />
           </div>
-
-          {/* High-Impact Yellow "Enter Dream Gym" Button */}
-          <button
-            onClick={handleEnterApp}
-            className="w-full py-4 px-6 rounded-2xl bg-[#FFD447] hover:bg-[#FFE066] active:scale-[0.98] text-[#252A30] font-black text-sm flex items-center justify-center gap-2 shadow-[0_8px_25px_rgba(255,212,71,0.45)] transition-all cursor-pointer"
-          >
-            <span>Enter Dream Gym</span>
-            <ArrowRight className="w-4 h-4 stroke-[3]" />
-          </button>
-
-          <p className="text-[10px] text-center text-white/50">
-            Automated turnstile verification powered by Dream Gym
-          </p>
         </div>
       </div>
     );
@@ -516,10 +501,7 @@ export const MemberApp: React.FC = () => {
         {/* Top Header Row with Back Arrow to Splash */}
         <div className="flex items-center justify-between pt-4 sm:pt-6">
           <button
-            onClick={() => {
-              setSplashProgress(0);
-              setCurrentScreen('splash');
-            }}
+            onClick={() => setCurrentScreen('splash')}
             className="w-8 h-8 rounded-full bg-white border border-cloud-border flex items-center justify-center text-graphite shadow-xs hover:border-yellow-sunshine transition-all active:scale-95"
             title="Back to Welcome Splash"
           >
@@ -2768,10 +2750,7 @@ export const MemberApp: React.FC = () => {
           </button>
 
           <button
-            onClick={() => {
-              setSplashProgress(0);
-              setCurrentScreen('splash');
-            }}
+            onClick={() => setCurrentScreen('splash')}
             className="w-full p-3 flex items-center justify-between text-left hover:bg-cloud-grey/30 rounded-2xl transition-colors"
           >
             <div className="flex items-center gap-3">
