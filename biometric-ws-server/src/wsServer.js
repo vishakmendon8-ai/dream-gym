@@ -9,6 +9,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { config } from './config.js';
 import { inspectIncomingFrame } from './diagnosticParser.js';
+import { evaluateSubscription } from './firebaseStore.js';
 
 function extractRemoteIp(req) {
   const xff = req.headers['x-forwarded-for'];
@@ -310,23 +311,42 @@ export function attachBiometricWebSocketServer({ httpServer, store }) {
       const updatedDevice = await store.updateDeviceState(effectiveDeviceId, statePatch);
       broadcastAdmin('device_status', updatedDevice);
 
-      // Process extracted attendance events if verified standard fields were present
+      // Process extracted attendance events FIRST so we can reply with real access: 1 (ALLOW) or 0 (DECLINE)
+      let allGranted = true;
+      let lastDenialReason = null;
+      const deniedBioIds = [];
+
       if (inspection.attendanceEvents.length > 0) {
         for (const evt of inspection.attendanceEvents) {
           const result = await store.processAttendanceEvent({
             ...evt,
             deviceId: evt.deviceId || effectiveDeviceId,
           });
-          if (result.ok && !result.duplicate) {
-            broadcastAdmin('attendance_event', result.record);
-            broadcastAdmin('device_status', store.getDevice(effectiveDeviceId));
+          if (result.ok) {
+            if (!result.granted) {
+              allGranted = false;
+              lastDenialReason = result.reason || result.record?.reason || 'Subscription Expired';
+              if (evt.biometricUserId) deniedBioIds.push(evt.biometricUserId);
+            }
+            if (!result.duplicate && result.record) {
+              broadcastAdmin('attendance_event', result.record);
+              broadcastAdmin('device_status', store.getDevice(effectiveDeviceId));
+            }
           }
         }
       }
 
       // Send protocol acknowledgment ONLY for recognized standard WS JSON commands
       if (inspection.suggestedReply && ws.readyState === WebSocket.OPEN) {
-        const replyStr = JSON.stringify(inspection.suggestedReply);
+        const replyPayload = { ...inspection.suggestedReply };
+        if (inspection.category === 'attendance_event') {
+          replyPayload.access = allGranted ? 1 : 0;
+          replyPayload.message = allGranted
+            ? 'Access Granted'
+            : (lastDenialReason || 'Subscription Expired').slice(0, 60);
+        }
+
+        const replyStr = JSON.stringify(replyPayload);
         ws.send(replyStr);
         await store.logDiagnostic({
           event: 'ws_reply_sent',
@@ -336,8 +356,36 @@ export function attachBiometricWebSocketServer({ httpServer, store }) {
           path: reqUrl,
           messageType: 'json',
           rawText: replyStr,
-          rawPreview: `SERVER REPLY -> ${replyStr}`,
+          rawPreview: `SERVER REPLY (${allGranted ? 'ALLOW' : 'DECLINE'}) -> ${replyStr}`,
         });
+
+        // If member's subscription is expired/denied, ALSO send hardware disable command (`enableuser enflag: 0`)
+        if (!allGranted && deniedBioIds.length > 0) {
+          for (const bioId of deniedBioIds) {
+            const numericId = /^\d+$/.test(bioId) ? Number(bioId) : bioId;
+            const blockCmd = JSON.stringify({
+              cmd: 'enableuser',
+              enrollid: numericId,
+              enflag: 0,
+            });
+            ws.send(blockCmd);
+            const blockDiag = await store.logDiagnostic({
+              event: 'ws_auto_block_expired',
+              connectionId,
+              deviceId: effectiveDeviceId,
+              remoteIp,
+              messageType: 'json',
+              rawText: blockCmd,
+              rawPreview: `AUTO-DECLINE EXPIRED USER -> ${blockCmd}`,
+            });
+            broadcastAdmin('diagnostic', blockDiag);
+          }
+        }
+      }
+
+      // When a device registers cleanly, enforce all known member subscription expiries on it
+      if (inspection.category === 'device_registration') {
+        enforceAllSubscriptionsOnDevice(effectiveDeviceId).catch(() => {});
       }
     });
 
@@ -441,10 +489,124 @@ export function attachBiometricWebSocketServer({ httpServer, store }) {
     };
   }
 
+  function formatLockDate(rawDate, isEnd = false) {
+    const parsed = rawDate ? new Date(rawDate) : null;
+    const d = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const datePart = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return `${datePart} ${isEnd ? '23:59:59' : '00:00:00'}`;
+  }
+
+  /**
+   * Push subscription enforcement rules to the connected Secureye machine:
+   *  - Expired / inactive / pending members -> `enableuser` (`enflag: 0`) so machine declines them!
+   *  - Active members -> `enableuser` (`enflag: 1`) + `setuserlock` (`starttime`/`endtime` expiry window)
+   */
+  async function enforceAllSubscriptionsOnDevice(deviceId = config.defaultDevice.serialNumber) {
+    const id = String(deviceId || config.defaultDevice.serialNumber).trim();
+    const sess = activeDeviceSessions.get(id);
+    const members = await store.getAllMembers();
+    const now = new Date();
+
+    const activeMembers = [];
+    const expiredMembers = [];
+
+    for (const m of members) {
+      const bioId = String(m.biometricId || '').trim();
+      if (!bioId || bioId.toUpperCase() === 'NONE') continue;
+      const verdict = evaluateSubscription(m, now);
+      if (verdict.granted) activeMembers.push(m);
+      else expiredMembers.push(m);
+    }
+
+    if (!sess || sess.ws.readyState !== WebSocket.OPEN) {
+      return {
+        ok: true,
+        deviceConnected: false,
+        deviceId: id,
+        enabledCount: activeMembers.length,
+        blockedCount: expiredMembers.length,
+        commandsSent: 0,
+        message: `Synced ${members.length} member(s) (${activeMembers.length} active, ${expiredMembers.length} expired/declined). Hardware commands will push automatically as soon as Secureye SN ${id} connects.`,
+      };
+    }
+
+    let commandsSent = 0;
+
+    // 1. Block / Decline all expired, inactive, or pending members directly on the machine
+    for (const m of expiredMembers) {
+      const bioId = String(m.biometricId).trim();
+      const enrollid = /^\d+$/.test(bioId) ? Number(bioId) : bioId;
+      const cmd = JSON.stringify({ cmd: 'enableuser', enrollid, enflag: 0 });
+      sess.ws.send(cmd);
+      commandsSent += 1;
+    }
+
+    // 2. Re-enable all active members + push their exact subscription start/expiry timestamps
+    const lockRecords = [];
+    for (const m of activeMembers) {
+      const bioId = String(m.biometricId).trim();
+      const enrollid = /^\d+$/.test(bioId) ? Number(bioId) : bioId;
+      const enableCmd = JSON.stringify({ cmd: 'enableuser', enrollid, enflag: 1 });
+      sess.ws.send(enableCmd);
+      commandsSent += 1;
+
+      if (m.expiryDate) {
+        lockRecords.push({
+          enrollid,
+          weekzone: 1,
+          starttime: formatLockDate(m.startDate || m.joinDate || new Date().toISOString(), false),
+          endtime: formatLockDate(m.expiryDate, true),
+        });
+      }
+    }
+
+    if (lockRecords.length > 0) {
+      const lockCmd = JSON.stringify({
+        cmd: 'setuserlock',
+        count: lockRecords.length,
+        record: lockRecords,
+      });
+      sess.ws.send(lockCmd);
+      commandsSent += 1;
+    }
+
+    const diag = await store.logDiagnostic({
+      event: 'ws_subscription_enforced',
+      connectionId: sess.connectionId,
+      deviceId: id,
+      remoteIp: sess.remoteIp,
+      messageType: 'json',
+      rawPreview: `SUBSCRIPTION ENFORCEMENT -> Enabled ${activeMembers.length} active, Blocked/Declined ${expiredMembers.length} expired (${commandsSent} WS command(s) sent)`,
+    });
+    broadcastAdmin('diagnostic', diag);
+
+    return {
+      ok: true,
+      deviceConnected: true,
+      deviceId: id,
+      enabledCount: activeMembers.length,
+      blockedCount: expiredMembers.length,
+      commandsSent,
+      message: `Enforced subscriptions on Secureye SN ${id}: ${activeMembers.length} active allowed, ${expiredMembers.length} expired/declined blocked on hardware.`,
+    };
+  }
+
+  // Automatic 5-minute expiry sweep (catches memberships expiring at midnight automatically)
+  const expirySweepTimer = setInterval(() => {
+    for (const sess of activeDeviceSessions.values()) {
+      if (sess.deviceId && sess.ws.readyState === WebSocket.OPEN) {
+        enforceAllSubscriptionsOnDevice(sess.deviceId).catch(() => {});
+      }
+    }
+  }, 5 * 60_000);
+  if (typeof expirySweepTimer.unref === 'function') expirySweepTimer.unref();
+
   return {
     getActiveConnections,
     disconnectDevice,
     requestAttendanceSync,
+    enforceAllSubscriptionsOnDevice,
     broadcastAdmin,
   };
 }

@@ -297,3 +297,74 @@ export async function disconnectBiometricDevice(
     return { ok: false, error: err?.message || 'Disconnect request failed.' };
   }
 }
+
+export async function syncMembersToBiometricBackend(
+  baseUrl: string,
+  members: Array<{
+    id: string;
+    name: string;
+    email?: string;
+    avatar?: string;
+    biometricId?: string;
+    status: string;
+    planName?: string;
+    startDate?: string;
+    joinDate?: string;
+    expiryDate?: string;
+  }>,
+  apiSecret?: string
+): Promise<{
+  ok: boolean;
+  message?: string;
+  enabledCount?: number;
+  blockedCount?: number;
+  error?: string;
+}> {
+  try {
+    const resp = await fetch(`${cleanBase(baseUrl)}/api/biometric/members-sync`, {
+      method: 'POST',
+      headers: buildHeaders(apiSecret),
+      body: JSON.stringify({ members }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      return { ok: false, error: data.error || `HTTP ${resp.status}` };
+    }
+    return {
+      ok: true,
+      message: data.enforcement?.message,
+      enabledCount: data.enforcement?.enabledCount,
+      blockedCount: data.enforcement?.blockedCount,
+    };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Member subscription sync failed.' };
+  }
+}
+
+export async function enforceSubscriptionsOnDevice(
+  baseUrl: string,
+  deviceId = '102026020002110',
+  apiSecret?: string
+): Promise<{
+  ok: boolean;
+  message?: string;
+  enabledCount?: number;
+  blockedCount?: number;
+  deviceConnected?: boolean;
+  error?: string;
+}> {
+  try {
+    const resp = await fetch(`${cleanBase(baseUrl)}/api/biometric/enforce-subscriptions`, {
+      method: 'POST',
+      headers: buildHeaders(apiSecret),
+      body: JSON.stringify({ deviceId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      return { ok: false, error: data.error || `HTTP ${resp.status}` };
+    }
+    return data;
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Subscription enforcement failed.' };
+  }
+}

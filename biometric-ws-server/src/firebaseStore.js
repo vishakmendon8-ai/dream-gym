@@ -24,7 +24,7 @@ function parseExpiryDate(rawDate) {
   return parsed;
 }
 
-function evaluateSubscription(memberData, punchDate) {
+export function evaluateSubscription(memberData, punchDate = new Date()) {
   if (!memberData) {
     return { granted: false, reason: 'Biometric User ID is not linked to any Gym Member.' };
   }
@@ -58,6 +58,8 @@ export class BiometricFirebaseStore {
     this.diagnostics = [];
     this.attendanceCache = [];
     this.dedupKeys = new Set();
+    // Synced Dream Gym members keyed by member.id (used for real-time expiry checks & hardware blocking)
+    this.memberDirectory = new Map();
 
     // Seed baseline verified Secureye device metadata (strictly disconnected until real WS connects)
     const d = config.defaultDevice;
@@ -305,9 +307,72 @@ export class BiometricFirebaseStore {
   }
 
   /**
+   * Sync gym members & subscription dates from Dream Gym (or Firestore) so the
+   * WebSocket server can decline expired members in real time AND push block/enable
+   * commands to the physical Secureye machine.
+   */
+  syncMembersDirectory(membersList = []) {
+    if (!Array.isArray(membersList)) return { total: 0, active: 0, expired: 0 };
+    const next = new Map();
+    const now = new Date();
+    let activeCount = 0;
+    let expiredCount = 0;
+
+    for (const raw of membersList) {
+      if (!raw || !raw.id) continue;
+      const entry = {
+        id: String(raw.id).trim(),
+        name: String(raw.name || 'Member').trim(),
+        email: raw.email || null,
+        avatar: raw.avatar || null,
+        biometricId: String(raw.biometricId || '').trim(),
+        status: String(raw.status || 'pending').trim().toLowerCase(),
+        planName: String(raw.planName || '').trim(),
+        startDate: raw.startDate || raw.joinDate || null,
+        expiryDate: raw.expiryDate || null,
+      };
+      next.set(entry.id, entry);
+      const verdict = evaluateSubscription(entry, now);
+      if (verdict.granted) activeCount += 1;
+      else expiredCount += 1;
+    }
+
+    this.memberDirectory = next;
+    return { total: next.size, active: activeCount, expired: expiredCount };
+  }
+
+  async getAllMembers() {
+    if (this.firestoreReady) {
+      try {
+        const snap = await this.firestore.collection('members').get();
+        if (!snap.empty) {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          this.syncMembersDirectory(list);
+          return list;
+        }
+      } catch {}
+    }
+    return Array.from(this.memberDirectory.values());
+  }
+
+  lookupMemberInDirectory(biometricUserId) {
+    const clean = String(biometricUserId || '').trim().toLowerCase();
+    if (!clean) return null;
+    for (const m of this.memberDirectory.values()) {
+      if (
+        (m.biometricId && m.biometricId.trim().toLowerCase() === clean) ||
+        m.id.trim().toLowerCase() === clean
+      ) {
+        return m;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Process a real extracted attendance event:
    *  - Deduplicate deterministically (deviceId + biometricUserId + second-level timestamp + eventId)
-   *  - Map biometricUserId -> Gym Member ID in Firestore `members`
+   *  - Map biometricUserId -> Gym Member ID in Firestore `members` (or synced memberDirectory)
    *  - Validate member subscription status & expiry date
    *  - Persist to `attendance`, `access_logs`, `biometric_sync_logs`, and update device stats
    */
@@ -326,7 +391,10 @@ export class BiometricFirebaseStore {
 
     // 1. Atomic duplicate protection
     if (this.dedupKeys.has(eventKey)) {
-      return { ok: true, duplicate: true, eventKey };
+      // Still evaluate subscription verdict so the machine gets the right access: 0/1 reply!
+      const cachedMember = this.lookupMemberInDirectory(biometricUserId);
+      const cachedVerdict = evaluateSubscription(cachedMember, punchDate);
+      return { ok: true, duplicate: true, eventKey, granted: cachedVerdict.granted, reason: cachedVerdict.reason };
     }
 
     if (this.firestoreReady) {
@@ -345,12 +413,14 @@ export class BiometricFirebaseStore {
       });
       if (alreadyExists) {
         this.dedupKeys.add(eventKey);
-        return { ok: true, duplicate: true, eventKey };
+        const cachedMember = this.lookupMemberInDirectory(biometricUserId);
+        const cachedVerdict = evaluateSubscription(cachedMember, punchDate);
+        return { ok: true, duplicate: true, eventKey, granted: cachedVerdict.granted, reason: cachedVerdict.reason };
       }
     }
     this.dedupKeys.add(eventKey);
 
-    // 2. Lookup Gym Member by biometricId (or direct member document ID)
+    // 2. Lookup Gym Member by biometricId (Firestore first, then synced Dream Gym directory)
     let memberDoc = null;
     let memberData = null;
 
@@ -369,6 +439,13 @@ export class BiometricFirebaseStore {
       }
     }
 
+    if (!memberData) {
+      const dirMatch = this.lookupMemberInDirectory(biometricUserId);
+      if (dirMatch) {
+        memberData = dirMatch;
+      }
+    }
+
     const verdict =
       evt.verificationResult === 'failed'
         ? { granted: false, reason: 'Biometric verification failed on Secureye terminal.' }
@@ -384,10 +461,11 @@ export class BiometricFirebaseStore {
     const attendanceId = `att-${eventKey.slice(0, 16)}`;
     const accessLogId = `log-${eventKey.slice(0, 16)}`;
     const terminalId = `Secureye WS (${deviceId})`;
+    const resolvedMemberId = memberDoc ? memberDoc.id : memberData ? memberData.id : `UNLINKED:${biometricUserId}`;
 
     const attendanceRecord = {
       id: attendanceId,
-      memberId: memberDoc ? memberDoc.id : `UNLINKED:${biometricUserId}`,
+      memberId: resolvedMemberId,
       memberName: memberData ? memberData.name : `Unlinked User (${biometricUserId})`,
       memberEmail: memberData?.email || null,
       avatar:

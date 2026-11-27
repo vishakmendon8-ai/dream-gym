@@ -37,6 +37,7 @@ import {
   CloudBiometricDeviceState,
   buildAdminWsUrl,
   fetchBiometricStatus,
+  syncMembersToBiometricBackend,
 } from '../services/biometricCloudClient';
 
 const DEFAULT_BIOMETRIC_WS_BACKEND =
@@ -209,6 +210,29 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     membersRef.current = members;
   }, [members]);
+
+  // Auto-sync member subscription expiry dates to the Secureye WebSocket server
+  // so expired members are automatically declined on scan and blocked on the terminal
+  useEffect(() => {
+    if (!biometricBackendUrl || members.length === 0) return;
+    const timer = setTimeout(() => {
+      syncMembersToBiometricBackend(
+        biometricBackendUrl,
+        members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          avatar: m.avatar,
+          biometricId: m.biometricId,
+          status: m.status,
+          planName: m.planName,
+          startDate: m.startDate || m.joinDate,
+          expiryDate: m.expiryDate,
+        }))
+      ).catch(() => {});
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [members, biometricBackendUrl]);
 
   const soundEnabledRef = useRef<boolean>(soundEnabled);
   useEffect(() => {

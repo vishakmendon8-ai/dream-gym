@@ -11,6 +11,7 @@ import {
   fetchBiometricDiagnostics,
   fetchBiometricStatus,
   syncBiometricAttendance,
+  syncMembersToBiometricBackend,
   testBiometricConnection,
 } from '../../services/biometricCloudClient';
 import {
@@ -78,7 +79,7 @@ function fmtTime(iso?: string | null) {
 }
 
 export const BiometricManagementPanel: React.FC = () => {
-  const { playAccessTone } = useGym();
+  const { members, playAccessTone } = useGym();
 
   const [backendUrl, setBackendUrl] = useState(DEFAULT_CLOUD_RUN_URL);
   const [apiSecret, setApiSecret] = useState('');
@@ -298,6 +299,45 @@ export const BiometricManagementPanel: React.FC = () => {
     setBusyAction(null);
   };
 
+  // Button 7: Enforce Subscription Expiry (Auto-Decline Expired Members on Secureye Machine)
+  const handleEnforceSubscriptions = async () => {
+    if (!backendUrl.trim()) {
+      setFeedback({ type: 'warning', text: 'Configure your backend URL first.' });
+      return;
+    }
+    setBusyAction('enforce');
+    setFeedback(null);
+    const res = await syncMembersToBiometricBackend(
+      backendUrl,
+      members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        avatar: m.avatar,
+        biometricId: m.biometricId,
+        status: m.status,
+        planName: m.planName,
+        startDate: m.startDate || m.joinDate,
+        expiryDate: m.expiryDate,
+      })),
+      apiSecret
+    );
+    if (!res.ok) {
+      setFeedback({ type: 'error', text: res.error || 'Failed to enforce subscription rules.' });
+      playAccessTone('denied');
+    } else {
+      setFeedback({
+        type: 'success',
+        text:
+          res.message ||
+          `Subscription expiry rules enforced: ${res.enabledCount ?? 0} active allowed, ${res.blockedCount ?? 0} expired/inactive declined.`,
+      });
+      playAccessTone('granted');
+      await refreshAll(backendUrl);
+    }
+    setBusyAction(null);
+  };
+
   const copyWssEndpoint = () => {
     if (!wssEndpoint || typeof navigator === 'undefined') return;
     navigator.clipboard.writeText(wssEndpoint).catch(() => {});
@@ -485,6 +525,17 @@ export const BiometricManagementPanel: React.FC = () => {
           >
             <Activity className="w-3.5 h-3.5" />
             <span>{busyAction === 'sync' ? 'Syncing...' : 'Synchronize Attendance'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleEnforceSubscriptions}
+            disabled={busyAction !== null}
+            className="px-3.5 py-2 rounded-xl bg-[#252A30] text-[#FFD447] font-black text-xs inline-flex items-center gap-1.5 hover:bg-[#313740] disabled:opacity-50"
+            title="Sync all active & expired member dates to the WebSocket server and push block/enable rules to the Secureye machine"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>{busyAction === 'enforce' ? 'Enforcing...' : 'Enforce Expiry Rules'}</span>
           </button>
 
           <button

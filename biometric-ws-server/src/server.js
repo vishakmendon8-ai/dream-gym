@@ -157,6 +157,24 @@ app.post('/api/biometric/disconnect', requireAdminSecret, async (req, res) => {
   return res.status(200).json(result);
 });
 
+app.post('/api/biometric/members-sync', requireAdminSecret, async (req, res) => {
+  const membersList = Array.isArray(req.body?.members) ? req.body.members : [];
+  const deviceId = req.body?.deviceId || config.defaultDevice.serialNumber;
+  const summary = store.syncMembersDirectory(membersList);
+  const enforcement = await wsController.enforceAllSubscriptionsOnDevice(deviceId);
+  return res.status(200).json({
+    ok: true,
+    synced: summary,
+    enforcement,
+  });
+});
+
+app.post('/api/biometric/enforce-subscriptions', requireAdminSecret, async (req, res) => {
+  const deviceId = req.body?.deviceId || config.defaultDevice.serialNumber;
+  const result = await wsController.enforceAllSubscriptionsOnDevice(deviceId);
+  return res.status(200).json(result);
+});
+
 function getLocalIpv4List() {
   const ifaces = os.networkInterfaces();
   const ips = [];
