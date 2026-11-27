@@ -23,9 +23,11 @@ export interface CloudBiometricDeviceState {
   id: string;
   brand: string;
   serialNumber: string;
+  deviceSn?: string;
   cloudId: string;
   deviceUniqueId: string | null;
   localIp: string | null;
+  clientIp?: string;
   subnetMask?: string;
   gateway?: string;
   p2pServerIp?: string;
@@ -41,6 +43,7 @@ export interface CloudBiometricDeviceState {
   connectedAt: string | null;
   disconnectedAt: string | null;
   lastHeartbeatAt: string | null;
+  lastSeenAt?: string | null;
   lastReceivedMessage: string | null;
   lastReceivedMessageType: string | null;
   lastReceivedMessageAt: string | null;
@@ -179,16 +182,16 @@ export async function testBiometricConnection(
       return { ok: false, error: data.error || `HTTP ${resp.status}` };
     }
 
-    // Also verify real browser WebSocket handshake on /biometric
-    const wssUrl = buildBiometricWssUrl(baseUrl);
+    // Verify admin WebSocket stream endpoint (/ws/admin)
+    const adminWsUrl = buildAdminWsUrl(baseUrl, apiSecret);
     let wsOk = false;
-    if (wssUrl && typeof WebSocket !== 'undefined') {
+    if (adminWsUrl && typeof WebSocket !== 'undefined') {
       wsOk = await new Promise<boolean>((resolve) => {
-        const ws = new WebSocket(wssUrl);
+        const ws = new WebSocket(adminWsUrl);
         const t = setTimeout(() => {
           try { ws.close(); } catch {}
           resolve(false);
-        }, 6000);
+        }, 4000);
         ws.onopen = () => {
           clearTimeout(t);
           ws.close(1000, 'Admin handshake test');
@@ -209,8 +212,8 @@ export async function testBiometricConnection(
       firestoreConnected: data.firestoreConnected,
       message: `${data.message} ${
         wsOk
-          ? 'Live WebSocket handshake on /biometric verified (HTTP 101).'
-          : 'WebSocket handshake probe on /biometric did not open.'
+          ? 'Live admin WebSocket stream (/ws/admin) verified.'
+          : 'Admin WebSocket stream probe did not connect.'
       }`,
     };
   } catch (err: any) {
