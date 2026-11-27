@@ -358,10 +358,19 @@ export class BiometricFirebaseStore {
   lookupMemberInDirectory(biometricUserId) {
     const clean = String(biometricUserId || '').trim().toLowerCase();
     if (!clean) return null;
+    const cleanNorm = /^\d+$/.test(clean) ? String(parseInt(clean, 10)) : clean;
+
     for (const m of this.memberDirectory.values()) {
+      const bioId = String(m.biometricId || '').trim().toLowerCase();
+      const bioNorm = /^\d+$/.test(bioId) ? String(parseInt(bioId, 10)) : bioId;
+      const memId = String(m.id || '').trim().toLowerCase();
+      const memNorm = /^\d+$/.test(memId) ? String(parseInt(memId, 10)) : memId;
+
       if (
-        (m.biometricId && m.biometricId.trim().toLowerCase() === clean) ||
-        m.id.trim().toLowerCase() === clean
+        bioId === clean ||
+        bioNorm === cleanNorm ||
+        memId === clean ||
+        memNorm === cleanNorm
       ) {
         return m;
       }
