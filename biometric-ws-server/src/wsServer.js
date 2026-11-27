@@ -447,24 +447,45 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
           }
         }
 
-        // If member's subscription is expired/denied, ALSO send hardware disable command (`enableuser enflag: 0`)
+        // If member's subscription is expired/denied, send comprehensive hardware disable & lockout commands
         if (!allGranted && deniedBioIds.length > 0) {
           for (const bioId of deniedBioIds) {
             const numericId = /^\d+$/.test(bioId) ? Number(bioId) : bioId;
-            const blockCmd = JSON.stringify({
-              cmd: 'enableuser',
-              enrollid: numericId,
-              enflag: 0,
-            });
-            ws.send(blockCmd);
+
+            // 1. Standard enableuser enflag: 0 (Numeric)
+            try {
+              ws.send(JSON.stringify({ cmd: 'enableuser', enrollid: numericId, enflag: 0 }));
+            } catch {}
+
+            // 2. enableuser (String ID)
+            try {
+              ws.send(JSON.stringify({ cmd: 'enableuser', enrollid: String(bioId), enflag: 0 }));
+            } catch {}
+
+            // 3. Hardware Lockout (weekzone: 0 -> Locks out door relay locally on the machine)
+            try {
+              ws.send(JSON.stringify({
+                cmd: 'setuserlock',
+                count: 1,
+                record: [{ enrollid: numericId, weekzone: 0, starttime: '2000-01-01 00:00:00', endtime: '2000-01-01 00:00:00' }]
+              }));
+            } catch {}
+
+            // 4. Secureye XML User Lockout Commands
+            try {
+              ws.send(`<?xml version="1.0"?>\n<Command>\n<Name>SetUserLock</Name>\n<UserID>${bioId}</UserID>\n<TimeZone>0</TimeZone>\n<WeekZone>0</WeekZone>\n</Command>`);
+            } catch {}
+            try {
+              ws.send(`<?xml version="1.0"?>\n<Command>\n<Name>DisableUser</Name>\n<UserID>${bioId}</UserID>\n</Command>`);
+            } catch {}
+
             const blockDiag = await store.logDiagnostic({
               event: 'ws_auto_block_expired',
               connectionId,
               deviceId: effectiveDeviceId,
               remoteIp,
               messageType: 'json',
-              rawText: blockCmd,
-              rawPreview: `AUTO-DECLINE EXPIRED USER -> ${blockCmd}`,
+              rawPreview: `AUTO-BLOCK INACTIVE USER -> Sent hardware lockout & weekzone=0 for User ID ${bioId}`,
             });
             broadcastAdmin('diagnostic', blockDiag);
           }
