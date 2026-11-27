@@ -2,6 +2,7 @@ import React from 'react';
 import { useGym } from '../../context/GymContext';
 import { AdminTab } from '../../types/gym';
 export type { AdminTab } from '../../types/gym';
+import { BiometricMachineStatusCard } from '../common/BiometricMachineStatusCard';
 import { 
   LayoutDashboard, 
   Users, 
@@ -117,6 +118,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
         </nav>
       </div>
 
+      {/* Hardware Connection Quick Widget */}
+      <div className="pt-2">
+        <BiometricMachineStatusCard compact />
+      </div>
+
       {/* Facility Footer Card */}
       <div className="pt-3 mt-4 border-t border-[#313740]">
         <button
@@ -149,8 +155,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
         onClick={onCloseMobile}
         className="fixed inset-0 bg-black/55 backdrop-blur-xs"
       />
-      {/* Drawer Container aligned with 430px phone shell */}
-      <div className="relative z-10 w-full max-w-[430px] h-full flex pointer-events-none">
+      {/* Drawer Container aligned with phone shell */}
+      <div className="relative z-10 w-full sm:max-w-[440px] h-full flex pointer-events-none">
         <div
           className={`pointer-events-auto relative h-full w-fit transform transition-transform duration-200 ease-out ${
             mobileOpen ? 'translate-x-0' : '-translate-x-full'
