@@ -241,6 +241,7 @@ function analyzeXmlPayload(xmlText, meta) {
       rawText: xmlText.slice(0, 4000),
       rawPreview: xmlText.slice(0, 300),
       deviceId,
+      logId,
       attendanceEvents: [],
       suggestedReply: `<?xml version="1.0"?>\n<Response>\n<Status>OK</Status>\n<Result>OK</Result>\n<Message>Register OK</Message>\n<DeviceSerialNo>${deviceId}</DeviceSerialNo>\n</Response>`,
     };
@@ -266,6 +267,7 @@ function analyzeXmlPayload(xmlText, meta) {
       rawText: xmlText.slice(0, 4000),
       rawPreview: xmlText.slice(0, 300),
       deviceId,
+      logId,
       attendanceEvents: [],
       suggestedReply: `<?xml version="1.0"?>\n<Response>\n<Status>OK</Status>\n<Result>OK</Result>\n</Response>`,
     };
@@ -296,6 +298,7 @@ function analyzeXmlPayload(xmlText, meta) {
       rawText: xmlText.slice(0, 4000),
       rawPreview: xmlText.slice(0, 300),
       deviceId,
+      logId,
       attendanceEvents: [
         {
           biometricUserId,
