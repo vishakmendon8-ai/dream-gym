@@ -154,11 +154,19 @@ export function inspectIncomingFrame(rawData, isBinary) {
         });
       }
     } catch {
-      // Fall through to plain text diagnostic
+      // Fall through to plain text / XML diagnostic
     }
   }
 
-  // Plain text diagnostic (non-JSON)
+  // Attempt Secureye / Realand / F500 XML parsing
+  if (text.startsWith('<') || text.includes('<?xml') || text.includes('<Message>') || text.includes('<Response>')) {
+    return analyzeXmlPayload(text, {
+      frameKind: 'xml',
+      byteLength,
+    });
+  }
+
+  // Plain text diagnostic (non-JSON, non-XML)
   return {
     messageType: 'text',
     category: 'plain_text_unrecognized',
@@ -170,6 +178,157 @@ export function inspectIncomingFrame(rawData, isBinary) {
     deviceId: null,
     attendanceEvents: [],
     suggestedReply: null,
+  };
+}
+
+/**
+ * Extract tag value from XML string (case-insensitive).
+ */
+function extractXmlTag(xml, tag) {
+  const match = xml.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i'));
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Classify and extract verified fields from a Secureye / Realand / F500 XML WebSocket message.
+ */
+function analyzeXmlPayload(xmlText, meta) {
+  const request = extractXmlTag(xmlText, 'Request');
+  const event = extractXmlTag(xmlText, 'Event');
+  const cmd = extractXmlTag(xmlText, 'Cmd') || request || event || '';
+  const terminalType = extractXmlTag(xmlText, 'TerminalType');
+  const productName = extractXmlTag(xmlText, 'ProductName');
+  const deviceId =
+    extractXmlTag(xmlText, 'DeviceSerialNo') ||
+    extractXmlTag(xmlText, 'CloudId') ||
+    extractXmlTag(xmlText, 'DeviceSN') ||
+    extractXmlTag(xmlText, 'SerialNumber') ||
+    extractXmlTag(xmlText, 'DevId') ||
+    '102026020002110';
+  const logId = extractXmlTag(xmlText, 'LogID') || extractXmlTag(xmlText, 'LogId') || null;
+  const rawUserId =
+    extractXmlTag(xmlText, 'UserID') ||
+    extractXmlTag(xmlText, 'UserId') ||
+    extractXmlTag(xmlText, 'EnrollID') ||
+    extractXmlTag(xmlText, 'EnrollId') ||
+    extractXmlTag(xmlText, 'PIN') ||
+    extractXmlTag(xmlText, 'Pin') ||
+    extractXmlTag(xmlText, 'UserPin') ||
+    null;
+  const rawTimestamp =
+    extractXmlTag(xmlText, 'Time') ||
+    extractXmlTag(xmlText, 'DateTime') ||
+    extractXmlTag(xmlText, 'Timestamp') ||
+    extractXmlTag(xmlText, 'PunchTime') ||
+    null;
+  const action =
+    extractXmlTag(xmlText, 'Action') ||
+    extractXmlTag(xmlText, 'Mode') ||
+    extractXmlTag(xmlText, 'VerifyMode') ||
+    'Fingerprint';
+
+  // 1. Device Registration Handshake
+  if (cmd.toLowerCase() === 'register' || request?.toLowerCase() === 'register') {
+    return {
+      messageType: 'xml',
+      frameKind: meta.frameKind || 'xml',
+      category: 'device_registration',
+      command: 'Register',
+      keys: ['Request', 'TerminalType', 'ProductName', 'DeviceSerialNo', 'CloudId'],
+      protocolRecognized: true,
+      needsOfficialDocs: false,
+      byteLength: meta.byteLength,
+      rawText: xmlText.slice(0, 4000),
+      rawPreview: xmlText.slice(0, 300),
+      deviceId,
+      attendanceEvents: [],
+      suggestedReply: `<?xml version="1.0"?>\n<Response>\n<Status>OK</Status>\n<Result>OK</Result>\n<Message>Register OK</Message>\n<DeviceSerialNo>${deviceId}</DeviceSerialNo>\n</Response>`,
+    };
+  }
+
+  // 2. Heartbeat / Keepalive
+  if (
+    cmd.toLowerCase() === 'heartbeat' ||
+    cmd.toLowerCase() === 'ping' ||
+    cmd.toLowerCase() === 'keepalive' ||
+    request?.toLowerCase() === 'heartbeat' ||
+    event?.toLowerCase() === 'heartbeat'
+  ) {
+    return {
+      messageType: 'xml',
+      frameKind: meta.frameKind || 'xml',
+      category: 'heartbeat',
+      command: cmd || 'Heartbeat',
+      keys: ['TerminalType', 'DeviceSerialNo'],
+      protocolRecognized: true,
+      needsOfficialDocs: false,
+      byteLength: meta.byteLength,
+      rawText: xmlText.slice(0, 4000),
+      rawPreview: xmlText.slice(0, 300),
+      deviceId,
+      attendanceEvents: [],
+      suggestedReply: `<?xml version="1.0"?>\n<Response>\n<Status>OK</Status>\n<Result>OK</Result>\n</Response>`,
+    };
+  }
+
+  // 3. Attendance Punch Push (e.g. TimeLog_v2 or any XML containing UserID/EnrollID)
+  const isAttendance =
+    rawUserId !== null ||
+    cmd.toLowerCase().includes('timelog') ||
+    cmd.toLowerCase().includes('att') ||
+    cmd.toLowerCase().includes('punch') ||
+    event?.toLowerCase().includes('timelog');
+
+  if (isAttendance && rawUserId) {
+    const biometricUserId = /^\d+$/.test(rawUserId) ? String(parseInt(rawUserId, 10)) : rawUserId;
+    const attendanceTimestamp = normalizeDeviceTimestamp(rawTimestamp) || new Date().toISOString();
+    const verificationMethod = mapVerificationMethod(action);
+
+    return {
+      messageType: 'xml',
+      frameKind: meta.frameKind || 'xml',
+      category: 'attendance_event',
+      command: event || cmd || 'TimeLog_v2',
+      keys: ['Event', 'UserID', 'Time', 'Action'],
+      protocolRecognized: true,
+      needsOfficialDocs: false,
+      byteLength: meta.byteLength,
+      rawText: xmlText.slice(0, 4000),
+      rawPreview: xmlText.slice(0, 300),
+      deviceId,
+      attendanceEvents: [
+        {
+          biometricUserId,
+          rawBiometricUserId: rawUserId,
+          deviceId,
+          attendanceTimestamp,
+          rawTimestamp: String(rawTimestamp || ''),
+          verificationMethod,
+          verificationResult: 'verified',
+          inout: '0',
+          eventId: logId,
+          rawRecord: { xml: xmlText },
+        },
+      ],
+      suggestedReply: `<?xml version="1.0"?>\n<Response>\n<Status>OK</Status>\n<Result>OK</Result>\n<LogID>${logId || '0'}</LogID>\n</Response>`,
+    };
+  }
+
+  // 4. Fallback recognized Secureye / Realand XML command or response
+  return {
+    messageType: 'xml',
+    frameKind: meta.frameKind || 'xml',
+    category: 'xml_frame',
+    command: cmd || null,
+    keys: [],
+    protocolRecognized: true,
+    needsOfficialDocs: false,
+    byteLength: meta.byteLength,
+    rawText: xmlText.slice(0, 4000),
+    rawPreview: xmlText.slice(0, 300),
+    deviceId,
+    attendanceEvents: [],
+    suggestedReply: `<?xml version="1.0"?>\n<Response>\n<Status>OK</Status>\n<Result>OK</Result>\n</Response>`,
   };
 }
 
@@ -243,36 +402,87 @@ function analyzeJsonPayload(obj, rawText, meta) {
   }
 
   // C. Attendance Event Push (`cmd: "sendlog"` / `rtlog` / `attlog` / `attendance` or reply to `getnewlog`/`getalllog`)
+  const hasAttendanceFields =
+    obj.enrollid !== undefined ||
+    obj.enroll_id !== undefined ||
+    obj.pin !== undefined ||
+    obj.userId !== undefined ||
+    obj.user_id !== undefined ||
+    obj.userid !== undefined ||
+    obj.empcode !== undefined ||
+    obj.record !== undefined ||
+    obj.records !== undefined ||
+    obj.logs !== undefined;
+
   const isAttendanceCmd =
     cmd === 'sendlog' ||
     cmd === 'rtlog' ||
     cmd === 'attlog' ||
     cmd === 'attendance' ||
     cmd === 'pushlog' ||
+    cmd === 'realtime' ||
+    cmd === 'punch' ||
+    cmd === 'userlog' ||
+    cmd === 'sendattlog' ||
+    cmd === 'att' ||
+    cmd === 'log' ||
+    cmd === 'verify' ||
     ret === 'getnewlog' ||
-    ret === 'getalllog';
+    ret === 'getalllog' ||
+    hasAttendanceFields;
 
   if (isAttendanceCmd) {
-    const rawRecords = Array.isArray(obj.record)
-      ? obj.record
-      : Array.isArray(obj.records)
-      ? obj.records
-      : Array.isArray(obj.logs)
-      ? obj.logs
-      : Array.isArray(obj.data)
-      ? obj.data
-      : obj.enrollid !== undefined || obj.pin !== undefined || obj.userId !== undefined
-      ? [obj]
-      : [];
+    let rawRecords = [];
+    if (Array.isArray(obj.record)) {
+      rawRecords = obj.record;
+    } else if (obj.record && typeof obj.record === 'object') {
+      rawRecords = [obj.record];
+    } else if (Array.isArray(obj.records)) {
+      rawRecords = obj.records;
+    } else if (obj.records && typeof obj.records === 'object') {
+      rawRecords = [obj.records];
+    } else if (Array.isArray(obj.logs)) {
+      rawRecords = obj.logs;
+    } else if (obj.logs && typeof obj.logs === 'object') {
+      rawRecords = [obj.logs];
+    } else if (Array.isArray(obj.data)) {
+      rawRecords = obj.data;
+    } else if (obj.data && typeof obj.data === 'object') {
+      rawRecords = [obj.data];
+    } else {
+      const rootId =
+        obj.enrollid ??
+        obj.enroll_id ??
+        obj.pin ??
+        obj.userid ??
+        obj.userId ??
+        obj.user_id ??
+        obj.empcode ??
+        obj.id;
+      if (rootId !== undefined && rootId !== null && rootId !== '') {
+        rawRecords = [obj];
+      }
+    }
 
     const attendanceEvents = [];
     for (const rec of rawRecords) {
       if (!rec || typeof rec !== 'object') continue;
-      const biometricUserId = String(
-        rec.enrollid ?? rec.enroll_id ?? rec.pin ?? rec.userid ?? rec.userId ?? rec.user_id ?? rec.empcode ?? ''
+      const rawBioId = String(
+        rec.enrollid ??
+          rec.enroll_id ??
+          rec.pin ??
+          rec.userid ??
+          rec.userId ??
+          rec.user_id ??
+          rec.empcode ??
+          rec.id ??
+          ''
       ).trim();
 
-      if (!biometricUserId) continue;
+      if (!rawBioId) continue;
+
+      // Normalize numeric ID by stripping leading zeroes (e.g. "00000123" -> "123")
+      const biometricUserId = /^\d+$/.test(rawBioId) ? String(parseInt(rawBioId, 10)) : rawBioId;
 
       const rawTimestamp = rec.time ?? rec.timestamp ?? rec.punch_time ?? rec.datetime ?? rec.checkTime ?? '';
       const attendanceTimestamp = normalizeDeviceTimestamp(rawTimestamp) || new Date().toISOString();
@@ -292,6 +502,7 @@ function analyzeJsonPayload(obj, rawText, meta) {
 
       attendanceEvents.push({
         biometricUserId,
+        rawBiometricUserId: rawBioId,
         deviceId,
         attendanceTimestamp,
         rawTimestamp: String(rawTimestamp || ''),
