@@ -371,3 +371,47 @@ export async function enforceSubscriptionsOnDevice(
     return { ok: false, error: err?.message || 'Subscription enforcement failed.' };
   }
 }
+
+export async function blockUserOnDevice(
+  baseUrl: string,
+  enrollId: string,
+  deviceId = '102026020002110',
+  apiSecret?: string
+): Promise<{ ok: boolean; message?: string; commandsSent?: number; deviceConnected?: boolean; error?: string }> {
+  try {
+    const resp = await fetch(`${cleanBase(baseUrl)}/api/biometric/block-user`, {
+      method: 'POST',
+      headers: buildHeaders(apiSecret),
+      body: JSON.stringify({ enrollId, deviceId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      return { ok: false, error: data.error || `HTTP ${resp.status}` };
+    }
+    return data;
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Block user request failed.' };
+  }
+}
+
+export async function unblockUserOnDevice(
+  baseUrl: string,
+  enrollId: string,
+  deviceId = '102026020002110',
+  apiSecret?: string
+): Promise<{ ok: boolean; message?: string; commandsSent?: number; deviceConnected?: boolean; error?: string }> {
+  try {
+    const resp = await fetch(`${cleanBase(baseUrl)}/api/biometric/unblock-user`, {
+      method: 'POST',
+      headers: buildHeaders(apiSecret),
+      body: JSON.stringify({ enrollId, deviceId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      return { ok: false, error: data.error || `HTTP ${resp.status}` };
+    }
+    return data;
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Unblock user request failed.' };
+  }
+}
