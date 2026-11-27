@@ -13,6 +13,8 @@ import {
   syncBiometricAttendance,
   syncMembersToBiometricBackend,
   testBiometricConnection,
+  blockUserOnDevice,
+  unblockUserOnDevice,
 } from '../../services/biometricCloudClient';
 import {
   Activity,
@@ -24,6 +26,8 @@ import {
   Copy,
   FileCode2,
   Fingerprint,
+  Lock,
+  LockOpen,
   PowerOff,
   Radio,
   RefreshCw,
@@ -74,9 +78,15 @@ function fmtTime(iso?: string | null) {
 }
 
 export const BiometricManagementPanel: React.FC = () => {
-  const { members, playAccessTone } = useGym();
+  const { 
+    members, 
+    playAccessTone, 
+    biometricBackendUrl, 
+    switchBiometricBackend, 
+    secureyeDevice 
+  } = useGym();
 
-  const [backendUrl, setBackendUrl] = useState<string>(BIOMETRIC_CONFIG.serverUrl);
+  const [backendUrl, setBackendUrl] = useState<string>(() => biometricBackendUrl || BIOMETRIC_CONFIG.serverUrl);
   const [apiSecret, setApiSecret] = useState<string>(BIOMETRIC_CONFIG.apiToken);
   const [showServerOverride, setShowServerOverride] = useState(false);
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
@@ -87,6 +97,12 @@ export const BiometricManagementPanel: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<BiometricDiagnosticLog[]>([]);
   const [attendanceLogs, setAttendanceLogs] = useState<BiometricCloudAttendanceRecord[]>([]);
 
+  useEffect(() => {
+    if (secureyeDevice) {
+      setDevice(secureyeDevice);
+    }
+  }, [secureyeDevice]);
+
   const [activeLogView, setActiveLogView] = useState<'diagnostics' | 'attendance'>('diagnostics');
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
@@ -94,6 +110,11 @@ export const BiometricManagementPanel: React.FC = () => {
     text: string;
   } | null>(null);
   const [copiedWss, setCopiedWss] = useState(false);
+
+  // Manual block / unblock test panel state
+  const [blockEnrollId, setBlockEnrollId] = useState('5');
+  const [blockResult, setBlockResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
 
   const logsSectionRef = useRef<HTMLDivElement | null>(null);
   const adminWsRef = useRef<WebSocket | null>(null);
@@ -339,8 +360,105 @@ export const BiometricManagementPanel: React.FC = () => {
 
   const isWsConnected = device.wsConnectionStatus === 'connected';
 
+  // Block / Unblock handlers
+  const handleBlockUser = async () => {
+    const id = blockEnrollId.trim();
+    if (!id) return;
+    setBlockBusy(true);
+    setBlockResult(null);
+    const res = await blockUserOnDevice(backendUrl, id, BIOMETRIC_CONFIG.defaultTerminal.serialNumber, apiSecret);
+    setBlockResult(res);
+    setBlockBusy(false);
+  };
+
+  const handleUnblockUser = async () => {
+    const id = blockEnrollId.trim();
+    if (!id) return;
+    setBlockBusy(true);
+    setBlockResult(null);
+    const res = await unblockUserOnDevice(backendUrl, id, BIOMETRIC_CONFIG.defaultTerminal.serialNumber, apiSecret);
+    setBlockResult(res);
+    setBlockBusy(false);
+  };
+
   return (
     <div className="space-y-5">
+
+      {/* ══════════════════════════════════════════════════════════
+          🔒 MANUAL BLOCK / UNBLOCK USER ON SECUREYE MACHINE
+          ══════════════════════════════════════════════════════════ */}
+      <div className="bg-white rounded-2xl p-5 border-2 border-red-200 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 pb-2 border-b border-red-100">
+          <Lock className="w-4 h-4 text-red-500" />
+          <h3 className="text-sm font-black text-[#252A30]">Block / Unblock User on Secureye Machine</h3>
+          <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-red-50 text-red-600 border border-red-200">
+            Door Access Control
+          </span>
+        </div>
+        <p className="text-xs text-[#84909A]">
+          Enter a <strong>Fingerprint Enroll ID</strong> and click <strong>Block</strong> to send disable / lockout commands to the connected Secureye 6K machine. The member's finger will be rejected locally and the door will <strong>NOT open</strong>. Click <strong>Unblock</strong> to re-enable them.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-semibold text-[#252A30] uppercase tracking-wide">
+              Fingerprint Enroll ID
+            </label>
+            <input
+              type="text"
+              value={blockEnrollId}
+              onChange={(e) => setBlockEnrollId(e.target.value)}
+              placeholder="e.g. 5"
+              className="px-3 py-2 rounded-xl border border-[#DCE3E8] text-sm font-mono w-28 focus:outline-none focus:ring-2 focus:ring-red-300"
+            />
+          </div>
+          <div className="flex gap-2 items-end pb-0.5">
+            <button
+              onClick={handleBlockUser}
+              disabled={blockBusy || !blockEnrollId.trim()}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-xs font-black disabled:opacity-50 transition-colors"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              {blockBusy ? 'Sending…' : 'Block User'}
+            </button>
+            <button
+              onClick={handleUnblockUser}
+              disabled={blockBusy || !blockEnrollId.trim()}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500 hover:bg-green-600 text-white text-xs font-black disabled:opacity-50 transition-colors"
+            >
+              <LockOpen className="w-3.5 h-3.5" />
+              {blockBusy ? 'Sending…' : 'Unblock User'}
+            </button>
+          </div>
+        </div>
+
+        {/* Result Banner */}
+        {blockResult && (
+          <div
+            className={`rounded-xl px-4 py-3 text-xs font-semibold flex items-start gap-2 ${
+              blockResult.ok
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}
+          >
+            {blockResult.ok ? (
+              <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-500" />
+            ) : (
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500" />
+            )}
+            <span>{blockResult.ok ? blockResult.message : (blockResult.error || 'Unknown error')}</span>
+          </div>
+        )}
+
+        {/* Machine connection status hint */}
+        <p className={`text-[11px] font-semibold flex items-center gap-1 ${isWsConnected ? 'text-green-600' : 'text-amber-600'}`}>
+          {isWsConnected ? (
+            <><Wifi className="w-3 h-3" /> Machine is connected — commands will reach the Secureye 6K instantly.</>
+          ) : (
+            <><WifiOff className="w-3 h-3" /> Machine is offline — connect the Secureye 6K first, then block.</>
+          )}
+        </p>
+      </div>
+
       {/* Cloud Run WebSocket Backend Connection Bar */}
       <div className="bg-white rounded-2xl p-5 border border-[#DCE3E8] shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-[#E9ECEF]">
@@ -367,15 +485,25 @@ export const BiometricManagementPanel: React.FC = () => {
             <span
               className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${
                 serverOnline
-                  ? 'bg-[#36A875]/15 text-[#36A875] border-[#36A875]/30'
+                  ? 'bg-[#252A30] text-white border-[#252A30]'
                   : 'bg-[#DC5555]/10 text-[#DC5555] border-[#DC5555]/30'
               }`}
             >
               {serverOnline === null
-                ? 'Checking...'
+                ? 'Checking Server...'
                 : serverOnline
-                ? `Cloud Server Online${firestoreConnected ? ' • Firestore OK' : ''}`
-                : 'Cloud Server Unreachable'}
+                ? `Backend Server Active${firestoreConnected ? ' • DB OK' : ''}`
+                : 'Backend Server Unreachable'}
+            </span>
+            <span
+              className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border inline-flex items-center gap-1 ${
+                isWsConnected
+                  ? 'bg-[#36A875]/15 text-[#237A54] border-[#36A875]/30'
+                  : 'bg-[#DC5555]/15 text-[#DC5555] border-[#DC5555]/30'
+              }`}
+            >
+              {isWsConnected ? <Wifi className="w-3 h-3 text-[#36A875]" /> : <WifiOff className="w-3 h-3 text-[#DC5555]" />}
+              <span>{isWsConnected ? 'Terminal Online' : 'Terminal Offline (Machine Off)'}</span>
             </span>
             <button
               type="button"
