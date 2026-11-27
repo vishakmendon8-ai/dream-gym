@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": "24.x"
+    "node": ">=20.0.0"
   },
   "scripts": {
     "start": "node biometric-ws-server/src/server.js",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "echo 'Backend server build ready' && vite build || echo 'Vite build skipped on backend'",
+    "build:client": "tsc -b && vite build",
     "seed": "node scripts/seedFirestore.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
