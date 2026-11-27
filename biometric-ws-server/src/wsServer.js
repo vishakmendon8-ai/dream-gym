@@ -376,12 +376,30 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
         let isXml = false;
 
         if (typeof inspection.suggestedReply === 'string') {
-          replyStr = inspection.suggestedReply;
           isXml = true;
+          if (inspection.category === 'attendance_event') {
+            const statusText = allGranted ? 'OK' : 'DENIED';
+            const resultText = allGranted ? 'OK' : 'FAIL';
+            const accessVal = allGranted ? '1' : '0';
+            const doorVal = allGranted ? 'Open' : 'Close';
+            const relayVal = allGranted ? '1' : '0';
+            const unlockVal = allGranted ? '1' : '0';
+            const voiceVal = allGranted ? '1' : '2';
+            const msgText = allGranted ? 'Access Granted' : (lastDenialReason || 'Access Denied').slice(0, 60);
+
+            replyStr = `<?xml version="1.0"?>\n<Response>\n<Status>${statusText}</Status>\n<Result>${resultText}</Result>\n<Access>${accessVal}</Access>\n<Door>${doorVal}</Door>\n<Relay>${relayVal}</Relay>\n<Unlock>${unlockVal}</Unlock>\n<Voice>${voiceVal}</Voice>\n<Message>${msgText}</Message>\n<LogID>${inspection.logId || '0'}</LogID>\n</Response>`;
+          } else {
+            replyStr = inspection.suggestedReply;
+          }
         } else {
           const replyPayload = { ...inspection.suggestedReply };
           if (inspection.category === 'attendance_event') {
+            replyPayload.result = allGranted;
             replyPayload.access = allGranted ? 1 : 0;
+            replyPayload.door = allGranted ? 1 : 0;
+            replyPayload.relay = allGranted ? 1 : 0;
+            replyPayload.unlock = allGranted ? 1 : 0;
+            replyPayload.voice = allGranted ? 1 : 2;
             replyPayload.message = allGranted
               ? 'Access Granted'
               : (lastDenialReason || 'Subscription Expired').slice(0, 60);
@@ -398,8 +416,36 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
           path: reqUrl,
           messageType: isXml ? 'xml' : 'json',
           rawText: replyStr,
-          rawPreview: `SERVER REPLY (${allGranted ? 'ALLOW' : 'DECLINE'}) -> ${replyStr.slice(0, 200)}`,
+          rawPreview: `SERVER REPLY (${allGranted ? 'ALLOW & UNLOCK' : 'DENIED & KEEP LOCKED'}) -> ${replyStr.slice(0, 200)}`,
         });
+
+        // Physical Door Relay Control for Attendance Scans
+        if (inspection.category === 'attendance_event') {
+          if (allGranted) {
+            // ACCEPTED: Tell machine to trigger door relay / unlock door
+            console.log(`[DOOR RELAY] Access ACCEPTED for device ${effectiveDeviceId} -> Triggering door unlock.`);
+            try {
+              ws.send(JSON.stringify({ cmd: 'opendoor', door: 1, duration: 5 }));
+            } catch {}
+            try {
+              ws.send(JSON.stringify({ cmd: 'relay', action: 'open', duration: 5 }));
+            } catch {}
+            if (isXml) {
+              try {
+                ws.send(`<?xml version="1.0"?>\n<Command>\n<Name>OpenDoor</Name>\n<Door>1</Door>\n<Relay>1</Relay>\n<Duration>5</Duration>\n</Command>`);
+              } catch {}
+            }
+          } else {
+            // DENIED: Keep door locked & trigger denial voice / error beep
+            console.log(`[DOOR RELAY] Access DENIED for device ${effectiveDeviceId} (${lastDenialReason || 'Expired'}) -> Door remains LOCKED.`);
+            try {
+              ws.send(JSON.stringify({ cmd: 'opendoor', door: 0, relay: 0 }));
+            } catch {}
+            try {
+              ws.send(JSON.stringify({ cmd: 'voice', code: 2, message: 'Access Denied' }));
+            } catch {}
+          }
+        }
 
         // If member's subscription is expired/denied, ALSO send hardware disable command (`enableuser enflag: 0`)
         if (!allGranted && deniedBioIds.length > 0) {
