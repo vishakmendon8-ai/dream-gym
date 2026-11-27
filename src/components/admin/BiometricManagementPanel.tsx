@@ -37,7 +37,8 @@ const DEFAULT_CLOUD_RUN_URL =
   import.meta.env.VITE_BIOMETRIC_WS_BACKEND_URL ||
   (typeof window !== 'undefined'
     ? window.localStorage.getItem('dreamgym_cloudrun_ws_url') || ''
-    : '');
+    : '') ||
+  'https://dream-gym-1.onrender.com';
 
 const VERIFIED_BASELINE_DEVICE: CloudBiometricDeviceState = {
   id: '102026020002110',
