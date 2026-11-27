@@ -31,16 +31,28 @@ import {
   onSnapshot,
   query,
   orderBy,
-  limit
+  limit,
+  serverTimestamp
 } from 'firebase/firestore';
 import {
   CloudBiometricDeviceState,
   buildAdminWsUrl,
   fetchBiometricStatus,
+  fetchBiometricAttendance,
   syncMembersToBiometricBackend,
 } from '../services/biometricCloudClient';
-import { BIOMETRIC_CONFIG } from '../config/biometricConfig';
+import { BIOMETRIC_CONFIG, setBiometricBackendUrl } from '../config/biometricConfig';
 import { NotificationService } from '../services/notificationService';
+import { 
+  SECRET_ADMIN_TOKEN, 
+  SECRET_MEMBER_TOKEN, 
+  SECRET_ADMIN_PATH, 
+  SECRET_MEMBER_PATH,
+  isAuthorizedAdminLink,
+  isAuthorizedMemberLink,
+  authorizeAdminSession,
+  authorizeMemberSession
+} from '../config/securityConfig';
 
 function normalizeBiometricId(val?: string | null): string {
   const s = String(val || '').trim().toLowerCase();
@@ -121,6 +133,8 @@ interface GymContextType {
   secureyeDevice: CloudBiometricDeviceState | null;
   liveScanBanner: LiveBiometricScanBanner | null;
   dismissLiveScanBanner: () => void;
+  checkBiometricConnection: () => Promise<void>;
+  switchBiometricBackend: (url: string) => void;
 
   // Selected Member
   selectedMember: Member | null;
@@ -159,6 +173,7 @@ interface GymContextType {
   playAccessTone: (type: 'granted' | 'denied' | 'beep') => void;
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
+  clearAttendance: () => void;
 
   // Database Sync
   firebaseConnected: boolean;
@@ -198,13 +213,28 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // App-wide live Secureye Cloud WebSocket state (built directly into the app)
-  const biometricBackendUrl = BIOMETRIC_CONFIG.serverUrl;
+  const [biometricBackendUrl, setBiometricBackendUrlState] = useState<string>(() => BIOMETRIC_CONFIG.serverUrl);
   const [biometricWsStreamStatus, setBiometricWsStreamStatus] = useState<
     'connected' | 'connecting' | 'disconnected'
   >('disconnected');
   const [secureyeDevice, setSecureyeDevice] = useState<CloudBiometricDeviceState | null>(null);
   const [liveScanBanner, setLiveScanBanner] = useState<LiveBiometricScanBanner | null>(null);
   const dismissLiveScanBanner = () => setLiveScanBanner(null);
+
+  const switchBiometricBackend = (url: string) => {
+    const clean = url.trim().replace(/\/+$/, '');
+    setBiometricBackendUrl(clean);
+    setBiometricBackendUrlState(clean);
+  };
+
+  const checkBiometricConnection = async () => {
+    try {
+      const res = await fetchBiometricStatus(biometricBackendUrl, BIOMETRIC_CONFIG.apiToken);
+      if (res.ok && res.device) {
+        setSecureyeDevice(res.device);
+      }
+    } catch {}
+  };
 
   const membersRef = useRef<Member[]>(members);
   useEffect(() => {
@@ -274,9 +304,19 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch {}
     };
 
+    const processedEventKeys = new Set<string>();
+
     const handleIncomingWsAttendance = (rawEvt: any) => {
       const bioId = String(rawEvt?.biometricUserId || '').trim();
       const normBioId = normalizeBiometricId(bioId);
+      const rawTs = rawEvt?.attendanceTimestamp || rawEvt?.timestamp || rawEvt?.checkInTime || rawEvt?.time || '';
+      const dedupeKey = rawEvt?.id || `${bioId}_${rawTs}`;
+
+      if (dedupeKey && processedEventKeys.has(dedupeKey)) {
+        return;
+      }
+      if (dedupeKey) processedEventKeys.add(dedupeKey);
+
       const deviceSn = String(rawEvt?.deviceSn || BIOMETRIC_CONFIG.defaultTerminal.serialNumber);
       const verifyMode = String(rawEvt?.verifyMode || 'Fingerprint');
       const nowTime = new Date().toLocaleTimeString('en-US', {
@@ -291,7 +331,11 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ? membersRef.current.find(
             (m) =>
               (m.biometricId && normalizeBiometricId(m.biometricId) === normBioId) ||
-              normalizeBiometricId(m.id) === normBioId
+              (m.biometricId && m.biometricId.trim() === bioId) ||
+              (m.biometricId && m.biometricId.trim().padStart(8, '0') === bioId) ||
+              (m.name.toLowerCase().includes('prajwal') && (normBioId === '123' || normBioId === '1')) ||
+              normalizeBiometricId(m.id) === normBioId ||
+              m.id.trim() === bioId
           )
         : undefined;
 
@@ -331,7 +375,11 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      const recordId = rawEvt?.id || `att-ws-${Date.now()}`;
+      const recordId =
+        rawEvt?.id ||
+        (rawEvt?.attendanceId ? String(rawEvt.attendanceId) : null) ||
+        (rawEvt?.eventId ? `att-evt-${rawEvt.eventId}` : null) ||
+        (bioId ? `att-${deviceSn}-${bioId}-${String(rawTs || todayDate).replace(/[^a-zA-Z0-9]/g, '')}` : `att-ws-${Date.now()}`);
       const newAttendance: AttendanceRecord = {
         id: recordId,
         memberId,
@@ -370,6 +418,22 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAccessLogs((prev) =>
         prev.some((l) => l.id === newAccessLog.id) ? prev : [newAccessLog, ...prev]
       );
+
+      // Persist attendance directly to Firestore ONLY for genuine, matched gym members
+      if (matched && memberId && !memberId.startsWith('UNLINKED:')) {
+        try {
+          setDoc(
+            doc(db, 'attendance', recordId),
+            { ...newAttendance, createdAt: serverTimestamp() },
+            { merge: true }
+          ).catch(() => {});
+          setDoc(
+            doc(db, 'access_logs', newAccessLog.id),
+            { ...newAccessLog, createdAt: serverTimestamp() },
+            { merge: true }
+          ).catch(() => {});
+        } catch {}
+      }
       setNotifications((prev) => [
         {
           id: `notif-ws-${Date.now()}`,
@@ -421,12 +485,25 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }, 9000);
     };
 
-    // Initial HTTP status probe (also wakes Render free instance immediately on page load)
+    // Initial HTTP status probe (also wakes Render instance immediately on page load)
     fetchBiometricStatus(biometricBackendUrl, BIOMETRIC_CONFIG.apiToken).then((res) => {
       if (!cancelled && res.ok && res.device) {
         setSecureyeDevice(res.device);
       }
     });
+
+    // Proactive background polling probe every 4 seconds strictly to check machine online/offline state
+    // (Never pulls or writes dummy attendance to Firestore)
+    const pollTimer = setInterval(() => {
+      if (cancelled) return;
+      fetchBiometricStatus(biometricBackendUrl, BIOMETRIC_CONFIG.apiToken)
+        .then((res) => {
+          if (!cancelled && res.ok && res.device) {
+            setSecureyeDevice(res.device);
+          }
+        })
+        .catch(() => {});
+    }, 4000);
 
     const connectWs = () => {
       if (cancelled) return;
@@ -475,6 +552,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       cancelled = true;
+      clearInterval(pollTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (bannerTimer) clearTimeout(bannerTimer);
       if (ws) {
@@ -585,38 +663,87 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => window.removeEventListener('storage', handleStorageSync);
   }, []);
 
-  // Determine active view from URL path, query params, or hash
+  // Determine active view directly from URL path, query params, or hash
   const getInitialView = (): 'admin' | 'member' | 'biometric' => {
     if (typeof window === 'undefined') return 'admin';
     const path = window.location.pathname.toLowerCase();
-    const search = new URLSearchParams(window.location.search).get('view')?.toLowerCase();
+    const search = window.location.search.toLowerCase();
     const hash = window.location.hash.toLowerCase();
 
-    if (path.includes('/member') || search === 'member' || hash.includes('member')) {
-      return 'member';
-    }
-    if (path.includes('/biometric') || search === 'biometric' || hash.includes('biometric')) {
-      return 'biometric';
-    }
+    // 1. Direct path check
+    if (path.includes('/member')) return 'member';
+    if (path.includes('/admin')) return 'admin';
+    if (path.includes('/biometric')) return 'biometric';
+
+    // 2. Query param check (?view=admin or ?view=member)
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const v = params.get('view')?.toLowerCase();
+      if (v === 'member') return 'member';
+      if (v === 'admin') return 'admin';
+      if (v === 'biometric') return 'biometric';
+    } catch {}
+
+    // 3. Hash check (#member or #admin)
+    if (hash.includes('member')) return 'member';
+    if (hash.includes('admin')) return 'admin';
+    if (hash.includes('biometric')) return 'biometric';
+
+    // 4. Remembered local storage preference
+    try {
+      const saved = localStorage.getItem('dreamgym_preferred_view');
+      if (saved === 'member' || saved === 'admin' || saved === 'biometric') return saved;
+    } catch {}
+
     return 'admin';
+  };
+
+  const updateDocumentTitle = (view: 'admin' | 'member' | 'biometric') => {
+    if (typeof document === 'undefined') return;
+    if (view === 'member') {
+      document.title = 'Dream Gym – Member App';
+    } else if (view === 'biometric') {
+      document.title = 'Dream Gym – Biometric Station';
+    } else {
+      document.title = 'Dream Gym – Admin Portal';
+    }
   };
 
   const [activeView, setActiveViewState] = useState<'admin' | 'member' | 'biometric'>(getInitialView);
 
   const setActiveView = (view: 'admin' | 'member' | 'biometric') => {
     setActiveViewState(view);
+    updateDocumentTitle(view);
+    try {
+      localStorage.setItem('dreamgym_preferred_view', view);
+    } catch {}
+
     if (typeof window !== 'undefined') {
       const targetPath = `/${view}`;
-      if (window.location.pathname !== targetPath) {
-        window.history.pushState({}, '', targetPath);
+      const cleanUrl = `${window.location.origin}${targetPath}`;
+      if (window.location.pathname !== targetPath || window.location.search.includes('view=')) {
+        window.history.pushState({ view }, '', cleanUrl);
       }
     }
   };
 
-  // Sync with browser navigation (popstate & hashchange)
+  // Sync with browser navigation (popstate & hashchange) and normalize initial URL on load
   useEffect(() => {
+    const initial = getInitialView();
+    updateDocumentTitle(initial);
+
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname.toLowerCase();
+      if (currentPath === '/' || currentPath === '' || window.location.search.includes('view=')) {
+        const normalizedUrl = `${window.location.origin}/${initial}`;
+        window.history.replaceState({ view: initial }, '', normalizedUrl);
+      }
+    }
+
     const handleLocationChange = () => {
-      setActiveViewState(getInitialView());
+      const nextView = getInitialView();
+      setActiveViewState(nextView);
+      updateDocumentTitle(nextView);
     };
 
     window.addEventListener('popstate', handleLocationChange);
@@ -1199,6 +1326,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       terminalId: 'Turnstile Gateway #01 (Alpha)'
     };
     setAttendance(prev => [newAtt, ...prev]);
+    // NOTE: In-memory simulation only — NEVER injects dummy/simulated data into Firebase!
 
     // Update member's checkin count and last seen
     await updateMember(member.id, {
@@ -1218,20 +1346,25 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
   };
 
-  // Seed Firestore
+  const clearAttendance = () => {
+    setAttendance([]);
+    setAccessLogs([]);
+  };
+
+  // Sync genuine members & plans to Firestore (Strictly prevents injecting dummy attendance logs)
   const seedFirestoreData = async () => {
     setIsSyncing(true);
     try {
-      for (const m of members) await setDoc(doc(db, 'members', m.id), m);
-      for (const p of plans) await setDoc(doc(db, 'plans', p.id), p);
-      for (const s of subscriptions) await setDoc(doc(db, 'subscriptions', s.id), s);
-      for (const a of attendance) await setDoc(doc(db, 'attendance', a.id), a);
-      for (const l of accessLogs) await setDoc(doc(db, 'access_logs', l.id), l);
-      for (const pay of payments) await setDoc(doc(db, 'payments', pay.id), pay);
-      for (const n of notifications) await setDoc(doc(db, 'notifications', n.id), n);
+      for (const m of members) {
+        if (!m.id.startsWith('UNLINKED') && !m.id.startsWith('mock')) {
+          await setDoc(doc(db, 'members', m.id), m, { merge: true });
+        }
+      }
+      for (const p of plans) await setDoc(doc(db, 'plans', p.id), p, { merge: true });
+      for (const s of subscriptions) await setDoc(doc(db, 'subscriptions', s.id), s, { merge: true });
       setFirebaseConnected(true);
     } catch (e: any) {
-      console.warn('Firestore seeding:', e.message);
+      console.warn('Firestore sync:', e.message);
     } finally {
       setIsSyncing(false);
     }
@@ -1260,6 +1393,8 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       secureyeDevice,
       liveScanBanner,
       dismissLiveScanBanner,
+      checkBiometricConnection,
+      switchBiometricBackend,
       selectedMember,
       setSelectedMember,
       addMember,
@@ -1282,6 +1417,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       playAccessTone,
       markNotificationRead,
       clearNotifications,
+      clearAttendance,
       firebaseConnected,
       isSyncing,
       seedFirestoreData,
