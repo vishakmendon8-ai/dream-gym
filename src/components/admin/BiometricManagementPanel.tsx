@@ -27,31 +27,26 @@ import {
   PowerOff,
   Radio,
   RefreshCw,
+  Settings2,
   ShieldCheck,
   Terminal,
   Wifi,
   WifiOff,
   Zap,
 } from 'lucide-react';
-
-const DEFAULT_CLOUD_RUN_URL =
-  import.meta.env.VITE_BIOMETRIC_WS_BACKEND_URL ||
-  (typeof window !== 'undefined'
-    ? window.localStorage.getItem('dreamgym_cloudrun_ws_url') || ''
-    : '') ||
-  'https://dream-gym-1.onrender.com';
+import { BIOMETRIC_CONFIG } from '../../config/biometricConfig';
 
 const VERIFIED_BASELINE_DEVICE: CloudBiometricDeviceState = {
-  id: '102026020002110',
+  id: BIOMETRIC_CONFIG.defaultTerminal.serialNumber,
   brand: 'Secureye',
-  serialNumber: '102026020002110',
-  cloudId: '102026020002110',
-  deviceUniqueId: 'BD77B4BE-3765DCD',
-  localIp: '192.168.1.101',
+  serialNumber: BIOMETRIC_CONFIG.defaultTerminal.serialNumber,
+  cloudId: BIOMETRIC_CONFIG.defaultTerminal.cloudId,
+  deviceUniqueId: BIOMETRIC_CONFIG.defaultTerminal.p2pCloudId,
+  localIp: BIOMETRIC_CONFIG.defaultTerminal.ipAddress,
   subnetMask: '255.255.255.0',
   gateway: '192.168.1.1',
   p2pServerIp: '54.187.2.68',
-  p2pServerPort: 4000,
+  p2pServerPort: BIOMETRIC_CONFIG.defaultTerminal.p2pPort,
   tcpPort: 5005,
   communicationPassword: false,
   serverClientMode: 'WebSocket',
@@ -81,8 +76,9 @@ function fmtTime(iso?: string | null) {
 export const BiometricManagementPanel: React.FC = () => {
   const { members, playAccessTone } = useGym();
 
-  const [backendUrl, setBackendUrl] = useState(DEFAULT_CLOUD_RUN_URL);
-  const [apiSecret, setApiSecret] = useState('');
+  const [backendUrl, setBackendUrl] = useState<string>(BIOMETRIC_CONFIG.serverUrl);
+  const [apiSecret, setApiSecret] = useState<string>(BIOMETRIC_CONFIG.apiToken);
+  const [showServerOverride, setShowServerOverride] = useState(false);
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
   const [firestoreConnected, setFirestoreConnected] = useState(false);
   const [adminWsState, setAdminWsState] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
@@ -102,7 +98,7 @@ export const BiometricManagementPanel: React.FC = () => {
   const logsSectionRef = useRef<HTMLDivElement | null>(null);
   const adminWsRef = useRef<WebSocket | null>(null);
 
-  const wssEndpoint = backendUrl.trim() ? buildBiometricWssUrl(backendUrl) : null;
+  const wssEndpoint = backendUrl.trim() ? buildBiometricWssUrl(backendUrl) : BIOMETRIC_CONFIG.wsUrl;
 
   const refreshAll = async (targetUrl = backendUrl) => {
     const cleaned = targetUrl.trim();
@@ -110,13 +106,9 @@ export const BiometricManagementPanel: React.FC = () => {
       setServerOnline(false);
       setFeedback({
         type: 'warning',
-        text: 'Deploy biometric-ws-server to Google Cloud Run and enter the deployed https://...run.app URL above to connect.',
+        text: 'Built-in biometric server URL is empty. Reset to default or configure VITE_BIOMETRIC_WS_BACKEND_URL.',
       });
       return;
-    }
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('dreamgym_cloudrun_ws_url', cleaned);
     }
 
     setBusyAction('refresh');
@@ -355,10 +347,10 @@ export const BiometricManagementPanel: React.FC = () => {
           <div>
             <h3 className="text-sm font-black text-[#252A30] flex items-center gap-2">
               <Cloud className="w-4 h-4 text-[#E5B82A]" />
-              <span>Secureye Cloud Run WebSocket Integration (Zero Local PC)</span>
+              <span>Built-in Cloud Biometric Server Diagnostics</span>
             </h3>
             <p className="text-xs text-[#84909A] mt-0.5">
-              Connects your physical Secureye terminal (<code>SN: 102026020002110</code>) directly over <code>WSS</code> to Google Cloud Run (<code>/biometric</code>) and Firebase Firestore (<code>gym001-50a97</code>).
+              Pre-configured inside the app for Secureye terminal (<code>SN: {BIOMETRIC_CONFIG.defaultTerminal.serialNumber}</code>) &rarr; <code>{BIOMETRIC_CONFIG.serverUrl}</code>.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -370,7 +362,7 @@ export const BiometricManagementPanel: React.FC = () => {
               }`}
             >
               <Radio className={`w-3 h-3 ${adminWsState === 'connected' ? 'animate-pulse' : ''}`} />
-              <span>{adminWsState === 'connected' ? 'Admin WS Live' : 'Admin WS Idle'}</span>
+              <span>{adminWsState === 'connected' ? 'Stream Live' : 'Stream Idle'}</span>
             </span>
             <span
               className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${
@@ -380,51 +372,62 @@ export const BiometricManagementPanel: React.FC = () => {
               }`}
             >
               {serverOnline === null
-                ? 'Not Connected'
+                ? 'Checking...'
                 : serverOnline
-                ? `Cloud Run Online${firestoreConnected ? ' • Firestore OK' : ''}`
-                : 'Cloud Run Unreachable'}
+                ? `Cloud Server Online${firestoreConnected ? ' • Firestore OK' : ''}`
+                : 'Cloud Server Unreachable'}
             </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-          <div className="md:col-span-6">
-            <label className="block font-bold text-[#252A30] mb-1">
-              Deployed Google Cloud Run Service URL (https://...run.app)
-            </label>
-            <input
-              type="url"
-              placeholder="https://dream-gym-biometric-ws-xxxxx.a.run.app"
-              value={backendUrl}
-              onChange={(e) => setBackendUrl(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono font-bold text-[#252A30] focus:outline-none focus:border-[#FFD447]"
-            />
-          </div>
-          <div className="md:col-span-3">
-            <label className="block font-bold text-[#252A30] mb-1">
-              API Secret (Optional Secret Manager)
-            </label>
-            <input
-              type="password"
-              placeholder="BIOMETRIC_API_SECRET"
-              value={apiSecret}
-              onChange={(e) => setApiSecret(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono text-[#252A30] focus:outline-none focus:border-[#FFD447]"
-            />
-          </div>
-          <div className="md:col-span-3 flex items-end">
             <button
               type="button"
-              onClick={handleRefreshStatus}
-              disabled={busyAction !== null}
-              className="w-full py-2 px-3 rounded-xl bg-[#252A30] text-[#FFD447] font-black text-xs flex items-center justify-center gap-1.5 hover:bg-[#313740] disabled:opacity-50"
+              onClick={() => setShowServerOverride((v) => !v)}
+              className="py-1 px-2.5 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] text-[#5A646E] hover:text-[#252A30] font-bold text-[11px] inline-flex items-center gap-1"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${busyAction === 'refresh' ? 'animate-spin' : ''}`} />
-              <span>Connect &amp; Refresh</span>
+              <Settings2 className="w-3.5 h-3.5" />
+              <span>{showServerOverride ? 'Hide Override' : 'Override URL'}</span>
             </button>
           </div>
         </div>
+
+        {/* Optional Temporary Developer Override (Collapsed by default) */}
+        {showServerOverride && (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+            <div className="md:col-span-6">
+              <label className="block font-bold text-[#252A30] mb-1">
+                Temporary Backend URL Override
+              </label>
+              <input
+                type="url"
+                placeholder="https://dream-gym-1.onrender.com"
+                value={backendUrl}
+                onChange={(e) => setBackendUrl(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono font-bold text-[#252A30] focus:outline-none focus:border-[#FFD447]"
+              />
+            </div>
+            <div className="md:col-span-3">
+              <label className="block font-bold text-[#252A30] mb-1">
+                API Secret (Set via VITE_BIOMETRIC_API_SECRET)
+              </label>
+              <input
+                type="password"
+                placeholder="Configured at build time"
+                value={apiSecret}
+                onChange={(e) => setApiSecret(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono text-[#252A30] focus:outline-none focus:border-[#FFD447]"
+              />
+            </div>
+            <div className="md:col-span-3 flex items-end">
+              <button
+                type="button"
+                onClick={handleRefreshStatus}
+                disabled={busyAction !== null}
+                className="w-full py-2 px-3 rounded-xl bg-[#252A30] text-[#FFD447] font-black text-xs flex items-center justify-center gap-1.5 hover:bg-[#313740] disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${busyAction === 'refresh' ? 'animate-spin' : ''}`} />
+                <span>Apply &amp; Refresh</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Generated Secureye Web Server URL Card */}
         {wssEndpoint && (

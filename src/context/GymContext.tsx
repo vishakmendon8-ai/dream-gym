@@ -39,10 +39,14 @@ import {
   fetchBiometricStatus,
   syncMembersToBiometricBackend,
 } from '../services/biometricCloudClient';
+import { BIOMETRIC_CONFIG } from '../config/biometricConfig';
 
-const DEFAULT_BIOMETRIC_WS_BACKEND =
-  import.meta.env.VITE_BIOMETRIC_WS_BACKEND_URL ||
-  'https://dream-gym-1.onrender.com';
+function normalizeBiometricId(val?: string | null): string {
+  const s = String(val || '').trim().toLowerCase();
+  if (!s) return '';
+  if (/^\d+$/.test(s)) return String(parseInt(s, 10));
+  return s;
+}
 
 export interface LiveBiometricScanBanner {
   id: string;
@@ -192,13 +196,8 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [firebaseConnected, setFirebaseConnected] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  // App-wide live Secureye Cloud WebSocket state (https://dream-gym-1.onrender.com)
-  const [biometricBackendUrl] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return window.localStorage.getItem('dreamgym_cloudrun_ws_url') || DEFAULT_BIOMETRIC_WS_BACKEND;
-    }
-    return DEFAULT_BIOMETRIC_WS_BACKEND;
-  });
+  // App-wide live Secureye Cloud WebSocket state (built directly into the app)
+  const biometricBackendUrl = BIOMETRIC_CONFIG.serverUrl;
   const [biometricWsStreamStatus, setBiometricWsStreamStatus] = useState<
     'connected' | 'connecting' | 'disconnected'
   >('disconnected');
@@ -228,7 +227,8 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           planName: m.planName,
           startDate: m.startDate || m.joinDate,
           expiryDate: m.expiryDate,
-        }))
+        })),
+        BIOMETRIC_CONFIG.apiToken
       ).catch(() => {});
     }, 900);
     return () => clearTimeout(timer);
@@ -275,7 +275,8 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const handleIncomingWsAttendance = (rawEvt: any) => {
       const bioId = String(rawEvt?.biometricUserId || '').trim();
-      const deviceSn = String(rawEvt?.deviceSn || '102026020002110');
+      const normBioId = normalizeBiometricId(bioId);
+      const deviceSn = String(rawEvt?.deviceSn || BIOMETRIC_CONFIG.defaultTerminal.serialNumber);
       const verifyMode = String(rawEvt?.verifyMode || 'Fingerprint');
       const nowTime = new Date().toLocaleTimeString('en-US', {
         hour: '2-digit',
@@ -284,12 +285,14 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       const todayDate = new Date().toISOString().split('T')[0];
 
-      // Match biometricUserId against Dream Gym members (biometricId or member id)
-      const matched = membersRef.current.find(
-        (m) =>
-          (m.biometricId && m.biometricId.trim().toLowerCase() === bioId.toLowerCase()) ||
-          m.id.trim().toLowerCase() === bioId.toLowerCase()
-      );
+      // Match biometricUserId against Dream Gym members (normalized numeric ID or member ID)
+      const matched = normBioId
+        ? membersRef.current.find(
+            (m) =>
+              (m.biometricId && normalizeBiometricId(m.biometricId) === normBioId) ||
+              normalizeBiometricId(m.id) === normBioId
+          )
+        : undefined;
 
       let status: 'granted' | 'denied' = rawEvt?.status === 'granted' ? 'granted' : 'denied';
       let reason = rawEvt?.reason || 'Biometric User ID not linked to any Dream Gym member.';
@@ -418,7 +421,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     // Initial HTTP status probe (also wakes Render free instance immediately on page load)
-    fetchBiometricStatus(biometricBackendUrl).then((res) => {
+    fetchBiometricStatus(biometricBackendUrl, BIOMETRIC_CONFIG.apiToken).then((res) => {
       if (!cancelled && res.ok && res.device) {
         setSecureyeDevice(res.device);
       }
@@ -426,7 +429,7 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const connectWs = () => {
       if (cancelled) return;
-      const adminWsUrl = buildAdminWsUrl(biometricBackendUrl);
+      const adminWsUrl = buildAdminWsUrl(biometricBackendUrl, BIOMETRIC_CONFIG.apiToken);
       if (!adminWsUrl) return;
 
       setBiometricWsStreamStatus('connecting');

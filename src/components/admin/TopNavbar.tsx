@@ -43,8 +43,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
     'plans': { title: 'Membership Plans', subtitle: 'Configure access packages & promotional pricing' },
     'subscriptions': { title: 'Subscriptions', subtitle: 'Track active memberships, renewals & expiries' },
     'payments': { title: 'Payments', subtitle: 'Razorpay billing transactions & revenue records' },
-    'biometric': { title: 'Biometric', subtitle: 'Live Secureye WebSocket terminal (SN 102026020002110) & member ID mapping' },
-    'access-monitor': { title: 'Access Monitor', subtitle: 'Real-time Secureye WebSocket entrance monitor & verification' },
+    'biometric': { title: 'Biometric', subtitle: 'Manage member fingerprint IDs & live attendance scans' },
+    'access-monitor': { title: 'Access Monitor', subtitle: 'Real-time entrance verification & live check-in monitor' },
     'attendance': { title: 'Attendance', subtitle: 'Live biometric check-in logs & visitor history' },
     'reports': { title: 'Reports', subtitle: 'Export revenue, membership & retention metrics' },
     'settings': { title: 'Settings', subtitle: 'Facility preferences & turnstile parameters' },
@@ -79,7 +79,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
 
       {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* Live Secureye WebSocket Status Pill */}
+        {/* Live Biometric Status Pill */}
         <button
           type="button"
           onClick={() => setCurrentTab('biometric')}
@@ -90,7 +90,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
               ? 'bg-[#FFF8E7] border-[#FFD447]/70 text-[#8A6112]'
               : 'bg-white border-[#DCE3E8] text-[#84909A] hover:border-[#FFD447]'
           }`}
-          title="Open Secureye Biometric WebSocket Management"
+          title="Open Biometric Attendance & Fingerprint IDs"
         >
           {isDeviceOnline ? (
             <Wifi className="w-3.5 h-3.5 text-[#36A875]" />
@@ -101,13 +101,13 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
           )}
           <span className="hidden sm:inline">
             {isDeviceOnline
-              ? 'Secureye Online'
+              ? 'Scanner Online'
               : isWsServerLive
-              ? 'WS Live • Awaiting Machine'
-              : 'WS Connecting...'}
+              ? 'Cloud Sync Ready'
+              : 'Connecting...'}
           </span>
           <span className="sm:hidden">
-            {isDeviceOnline ? 'Online' : isWsServerLive ? 'WS Live' : 'WS Off'}
+            {isDeviceOnline ? 'Online' : isWsServerLive ? 'Ready' : 'Syncing'}
           </span>
         </button>
 

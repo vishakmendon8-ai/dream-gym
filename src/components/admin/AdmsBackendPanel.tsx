@@ -30,15 +30,12 @@ import {
   RefreshCw,
   Send,
   Server,
+  Settings2,
   Terminal,
   Wifi,
   WifiOff,
 } from 'lucide-react';
-
-const DEFAULT_ADMS_URL =
-  import.meta.env.VITE_ADMS_API_URL ||
-  (typeof window !== 'undefined' ? window.localStorage.getItem('dreamgym_adms_url') || '' : '') ||
-  'http://localhost:8080';
+import { BIOMETRIC_CONFIG } from '../../config/biometricConfig';
 
 function fmtTime(iso?: string | null) {
   if (!iso) return 'Never';
@@ -48,8 +45,9 @@ function fmtTime(iso?: string | null) {
 
 export const AdmsBackendPanel: React.FC = () => {
   const { playAccessTone } = useGym();
-  const [serverUrl, setServerUrl] = useState(DEFAULT_ADMS_URL);
-  const [apiToken, setApiToken] = useState('');
+  const [serverUrl, setServerUrl] = useState<string>(BIOMETRIC_CONFIG.serverUrl);
+  const [apiToken, setApiToken] = useState<string>(BIOMETRIC_CONFIG.apiToken);
+  const [showServerOverride, setShowServerOverride] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
@@ -69,7 +67,7 @@ export const AdmsBackendPanel: React.FC = () => {
   const wsRef = useRef<WebSocket | null>(null);
 
   // LAN TCP/IP Device Probe
-  const [probeIp, setProbeIp] = useState('192.168.1.101');
+  const [probeIp, setProbeIp] = useState<string>(BIOMETRIC_CONFIG.defaultTerminal.ipAddress);
   const [probePorts, setProbePorts] = useState('4000,4370,5005,80,8080');
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<LanDeviceProbeResponse | null>(null);
@@ -81,10 +79,10 @@ export const AdmsBackendPanel: React.FC = () => {
   const [filterSn, setFilterSn] = useState('');
 
   // Pre-filled with verified Secureye machine details (status stays Offline until real heartbeat)
-  const [regSn, setRegSn] = useState('102026020002110');
-  const [regName, setRegName] = useState('Dream Gym Secureye Main Entrance');
+  const [regSn, setRegSn] = useState<string>(BIOMETRIC_CONFIG.defaultTerminal.serialNumber);
+  const [regName, setRegName] = useState<string>(BIOMETRIC_CONFIG.defaultTerminal.name);
   const [regLocation, setRegLocation] = useState('Main Entrance');
-  const [regIp, setRegIp] = useState('192.168.1.101');
+  const [regIp, setRegIp] = useState<string>(BIOMETRIC_CONFIG.defaultTerminal.ipAddress);
   const [regSaving, setRegSaving] = useState(false);
   const [regMsg, setRegMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -101,10 +99,6 @@ export const AdmsBackendPanel: React.FC = () => {
     if (!cleaned) return;
     if (!silent) setLoading(true);
     setErrorMsg(null);
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('dreamgym_adms_url', cleaned);
-    }
 
     const h = await fetchAdmsHealth(cleaned);
     setHealth(h);
@@ -360,6 +354,35 @@ export const AdmsBackendPanel: React.FC = () => {
                 ? `Bridge Online (${(health.database || 'SQL').toUpperCase()})`
                 : 'Bridge Not Running'}
             </span>
+            <button
+              type="button"
+              onClick={() => loadAll()}
+              disabled={loading}
+              className="py-1 px-2.5 rounded-xl bg-[#252A30] text-[#FFD447] font-black text-[11px] flex items-center gap-1 hover:bg-[#313740] disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+              <span>{loading ? 'Loading...' : 'Refresh'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAutoRefresh((v) => !v)}
+              className={`py-1 px-2.5 rounded-xl border font-black text-[11px] flex items-center gap-1 transition-all ${
+                autoRefresh
+                  ? 'bg-[#36A875] text-white border-[#36A875]'
+                  : 'bg-[#F5F6F2] text-[#252A30] border-[#DCE3E8] hover:border-[#FFD447]'
+              }`}
+            >
+              <Activity className={`w-3 h-3 ${autoRefresh ? 'animate-pulse' : ''}`} />
+              <span>{autoRefresh ? 'Live 5s ON' : 'Auto'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowServerOverride((v) => !v)}
+              className="py-1 px-2.5 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] text-[#5A646E] hover:text-[#252A30] font-bold text-[11px] flex items-center gap-1"
+            >
+              <Settings2 className="w-3 h-3" />
+              <span>{showServerOverride ? 'Hide Override' : 'Override URL'}</span>
+            </button>
           </div>
         </div>
 
@@ -370,52 +393,40 @@ export const AdmsBackendPanel: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-          <div className="md:col-span-5">
-            <label className="block font-bold text-[#252A30] mb-1">Bridge URL (Local Gym PC or Cloud)</label>
-            <input
-              type="url"
-              placeholder="http://localhost:8080"
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono font-bold text-[#252A30] focus:outline-none focus:border-[#FFD447]"
-            />
+        {showServerOverride && (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
+            <div className="md:col-span-6">
+              <label className="block font-bold text-[#252A30] mb-1">Bridge URL Override (Local Gym PC or Cloud)</label>
+              <input
+                type="url"
+                placeholder="https://dream-gym-1.onrender.com"
+                value={serverUrl}
+                onChange={(e) => setServerUrl(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono font-bold text-[#252A30] focus:outline-none focus:border-[#FFD447]"
+              />
+            </div>
+            <div className="md:col-span-4">
+              <label className="block font-bold text-[#252A30] mb-1">API Token (Set via VITE_BIOMETRIC_API_SECRET)</label>
+              <input
+                type="password"
+                placeholder="Configured at build time"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono text-[#252A30] focus:outline-none focus:border-[#FFD447]"
+              />
+            </div>
+            <div className="md:col-span-2 flex items-end">
+              <button
+                onClick={() => loadAll()}
+                disabled={loading}
+                className="w-full py-2 px-3 rounded-xl bg-[#252A30] text-[#FFD447] font-black text-xs flex items-center justify-center gap-1.5 hover:bg-[#313740] transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Apply</span>
+              </button>
+            </div>
           </div>
-          <div className="md:col-span-3">
-            <label className="block font-bold text-[#252A30] mb-1">API Token (Optional)</label>
-            <input
-              type="password"
-              placeholder="Leave blank for local PC"
-              value={apiToken}
-              onChange={(e) => setApiToken(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl bg-[#F5F6F2] border border-[#DCE3E8] font-mono text-[#252A30] focus:outline-none focus:border-[#FFD447]"
-            />
-          </div>
-          <div className="md:col-span-2 flex items-end">
-            <button
-              onClick={() => loadAll()}
-              disabled={loading}
-              className="w-full py-2 px-3 rounded-xl bg-[#252A30] text-[#FFD447] font-black text-xs flex items-center justify-center gap-1.5 hover:bg-[#313740] transition-all disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>{loading ? 'Loading...' : 'Refresh'}</span>
-            </button>
-          </div>
-          <div className="md:col-span-2 flex items-end">
-            <button
-              type="button"
-              onClick={() => setAutoRefresh((v) => !v)}
-              className={`w-full py-2 px-3 rounded-xl border font-black text-xs flex items-center justify-center gap-1.5 transition-all ${
-                autoRefresh
-                  ? 'bg-[#36A875] text-white border-[#36A875]'
-                  : 'bg-[#F5F6F2] text-[#252A30] border-[#DCE3E8] hover:border-[#FFD447]'
-              }`}
-            >
-              <Activity className={`w-3.5 h-3.5 ${autoRefresh ? 'animate-pulse' : ''}`} />
-              <span>{autoRefresh ? 'Live 5s ON' : 'Auto-Refresh'}</span>
-            </button>
-          </div>
-        </div>
+        )}
 
         {errorMsg && (
           <div className="p-3 rounded-xl bg-[#FFF8E7] border border-[#FFD447]/60 text-xs font-semibold text-[#8A6112] flex items-start gap-2">

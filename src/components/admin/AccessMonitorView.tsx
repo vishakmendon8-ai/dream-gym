@@ -102,16 +102,16 @@ export const AccessMonitorView: React.FC = () => {
           <div className="flex items-center gap-2 mb-1">
             <span className={`w-2.5 h-2.5 rounded-full ${isSecureyeOnline ? 'bg-[#36A875] animate-ping' : 'bg-[#FFD447]'}`} />
             <h1 className="text-xl lg:text-2xl font-black text-[#252A30] tracking-tight">
-              Live Access Monitoring &amp; Secureye Entrance Kiosk
+              Live Access Monitoring &amp; Entrance Kiosk
             </h1>
           </div>
           <p className="text-xs text-[#84909A]">
-            Real-time Secureye WebSocket entrance monitor (<code>wss://dream-gym-1.onrender.com/biometric</code>), audio verdicts, and live visitor logs.
+            Real-time entrance verification, live biometric scans, audio verdicts, and check-in history.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Real Secureye WebSocket Status Pill */}
+          {/* Live Biometric Status Pill */}
           <button
             type="button"
             onClick={() => setCurrentTab('biometric')}
@@ -122,19 +122,19 @@ export const AccessMonitorView: React.FC = () => {
                 ? 'bg-[#FFF8E7] border-[#FFD447]/70 text-[#8A6112]'
                 : 'bg-white border-[#DCE3E8] text-[#84909A] hover:border-[#FFD447]'
             }`}
-            title="Open Biometric Management"
+            title="Open Biometric Fingerprint IDs"
           >
             <span className={`w-2 h-2 rounded-full ${
               isSecureyeOnline ? 'bg-[#36A875] animate-ping' : isWsServerLive ? 'bg-[#E5A024]' : 'bg-[#DC5555]'
             }`} />
             <span>
               {isSecureyeOnline
-                ? `Secureye SN ${secureyeDevice?.serialNumber} Connected`
+                ? 'Entrance Scanner Connected'
                 : isWsServerLive
-                ? 'Cloud WS Ready (Awaiting Device)'
+                ? 'Cloud Sync Ready'
                 : isSensorConnected || isReadingData
-                ? `${sensorName} USB Active`
-                : 'WS Reconnecting...'}
+                ? `${sensorName} Active`
+                : 'Connecting...'}
             </span>
           </button>
 
