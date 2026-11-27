@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { GymProvider, useGym } from './context/GymContext';
 import { AdminSidebar } from './components/admin/AdminSidebar';
 import { TopNavbar } from './components/admin/TopNavbar';
@@ -14,25 +14,38 @@ import { ReportsView } from './components/admin/ReportsView';
 import { SettingsView } from './components/admin/SettingsView';
 import { AddMemberModal } from './components/admin/AddMemberModal';
 import { MemberApp } from './components/member/MemberApp';
-
-import { CheckCircle2, XCircle, X } from 'lucide-react';
+import { AdminTab } from './types/gym';
+import {
+  CheckCircle2,
+  XCircle,
+  X,
+  LayoutDashboard,
+  Users,
+  Fingerprint,
+  MonitorPlay,
+  Menu,
+} from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const {
     activeView,
     currentTab,
+    setCurrentTab,
     setIsAddMemberOpen,
     liveScanBanner,
     dismissLiveScanBanner,
+    secureyeDevice,
   } = useGym();
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   // If URL, hash, or state is set to Member App, render the Member App
-  const isMember = activeView === 'member' || 
-    (typeof window !== 'undefined' && (
-      window.location.pathname.toLowerCase().includes('/member') ||
-      window.location.search.toLowerCase().includes('member') ||
-      window.location.hash.toLowerCase().includes('member')
-    ));
+  const isMember =
+    activeView === 'member' ||
+    (typeof window !== 'undefined' &&
+      (window.location.pathname.toLowerCase().includes('/member') ||
+        window.location.search.toLowerCase().includes('member') ||
+        window.location.hash.toLowerCase().includes('member')));
 
   if (isMember) {
     return <MemberApp />;
@@ -67,23 +80,79 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  const isSecureyeOnline = secureyeDevice?.wsConnectionStatus === 'connected';
+  const mobileQuickTabs: Array<{ id: AdminTab; label: string; icon: React.ReactNode }> = [
+    { id: 'dashboard', label: 'Home', icon: <LayoutDashboard className="w-5 h-5" /> },
+    { id: 'members', label: 'Members', icon: <Users className="w-5 h-5" /> },
+    { id: 'biometric', label: 'Biometric', icon: <Fingerprint className="w-5 h-5" /> },
+    { id: 'access-monitor', label: 'Monitor', icon: <MonitorPlay className="w-5 h-5" /> },
+  ];
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#F5F6F2] text-[#252A30] font-sans antialiased selection:bg-[#FFD447] selection:text-[#252A30]">
-      {/* Fixed Deep Graphite Left Sidebar */}
-      <AdminSidebar />
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#F5F6F2] text-[#252A30] font-sans antialiased selection:bg-[#FFD447] selection:text-[#252A30]">
+      {/* Desktop Fixed Sidebar + Mobile Slide-Over Drawer */}
+      <AdminSidebar
+        mobileOpen={mobileMenuOpen}
+        onCloseMobile={() => setMobileMenuOpen(false)}
+      />
 
       {/* Main Viewport: Scrollable Cloud White Workspace */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto">
-        {/* Top Navigation Bar with View Switcher */}
-        <div className="sticky top-0 z-40 bg-[#F5F6F2]/90 backdrop-blur-md border-b border-[#DCE3E8]/60">
-          <TopNavbar />
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto overflow-x-hidden">
+        {/* Top Navigation Bar */}
+        <div className="sticky top-0 z-40 bg-[#F5F6F2]/95 backdrop-blur-md border-b border-[#DCE3E8]/60">
+          <TopNavbar onOpenMobileMenu={() => setMobileMenuOpen(true)} />
         </div>
 
-        {/* Dynamic Tab Content Area */}
-        <main className="flex-1 p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
+        {/* Dynamic Tab Content Area (extra bottom padding on mobile for fixed bottom nav) */}
+        <main className="flex-1 p-3.5 sm:p-5 lg:p-8 pb-24 lg:pb-8 max-w-[1600px] w-full mx-auto">
           {renderActiveTab()}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar (< lg) */}
+      <nav
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[#252A30]/98 backdrop-blur-md border-t border-[#353C46] px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,0.18)]"
+        aria-label="Mobile admin navigation"
+      >
+        <div className="grid grid-cols-5 gap-1 max-w-md mx-auto">
+          {mobileQuickTabs.map((item) => {
+            const isActive =
+              currentTab === item.id ||
+              (item.id === 'dashboard' && currentTab === 'overview');
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setCurrentTab(item.id)}
+                className={`relative flex flex-col items-center justify-center py-1.5 rounded-xl transition-all active:scale-95 ${
+                  isActive
+                    ? 'text-[#FFD447] bg-white/10'
+                    : 'text-[#A0AEC0] hover:text-white'
+                }`}
+              >
+                <div className="relative">
+                  {item.icon}
+                  {item.id === 'biometric' && isSecureyeOnline && (
+                    <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-[#36A875] ring-2 ring-[#252A30]" />
+                  )}
+                </div>
+                <span className="text-[10px] font-bold mt-0.5 leading-none">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex flex-col items-center justify-center py-1.5 rounded-xl text-[#A0AEC0] hover:text-white transition-all active:scale-95"
+          >
+            <Menu className="w-5 h-5" />
+            <span className="text-[10px] font-bold mt-0.5 leading-none">More</span>
+          </button>
+        </div>
+      </nav>
 
       {/* Global Add Member Modal */}
       <AddMemberModal />
@@ -91,7 +160,7 @@ const MainLayout: React.FC = () => {
       {/* Global Live Secureye Biometric Scan Verdict Toast */}
       {liveScanBanner && (
         <div
-          className={`fixed bottom-5 right-5 z-50 max-w-sm w-full rounded-2xl p-4 shadow-2xl border-2 backdrop-blur-md animate-fade-in ${
+          className={`fixed bottom-20 lg:bottom-5 left-3 right-3 sm:left-auto sm:right-5 z-50 sm:max-w-sm sm:w-full rounded-2xl p-4 shadow-2xl border-2 backdrop-blur-md animate-fade-in ${
             liveScanBanner.status === 'granted'
               ? 'bg-[#252A30]/95 border-[#36A875] text-white'
               : 'bg-[#252A30]/95 border-[#DC5555] text-white'

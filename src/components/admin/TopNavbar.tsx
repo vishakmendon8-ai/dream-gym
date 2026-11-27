@@ -7,10 +7,15 @@ import {
   Shield, 
   Radio,
   Wifi,
-  WifiOff
+  WifiOff,
+  Menu
 } from 'lucide-react';
 
-export const TopNavbar: React.FC = () => {
+interface TopNavbarProps {
+  onOpenMobileMenu?: () => void;
+}
+
+export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
   const { 
     currentTab, 
     searchQuery, 
@@ -38,34 +43,47 @@ export const TopNavbar: React.FC = () => {
     'plans': { title: 'Membership Plans', subtitle: 'Configure access packages & promotional pricing' },
     'subscriptions': { title: 'Subscriptions', subtitle: 'Track active memberships, renewals & expiries' },
     'payments': { title: 'Payments', subtitle: 'Razorpay billing transactions & revenue records' },
-    'biometric': { title: 'Biometric Management', subtitle: 'Live Secureye WebSocket terminal (SN 102026020002110) & member ID mapping' },
-    'access-monitor': { title: 'Live Access Monitoring', subtitle: 'Real-time Secureye WebSocket entrance monitor & verification' },
+    'biometric': { title: 'Biometric', subtitle: 'Live Secureye WebSocket terminal (SN 102026020002110) & member ID mapping' },
+    'access-monitor': { title: 'Access Monitor', subtitle: 'Real-time Secureye WebSocket entrance monitor & verification' },
     'attendance': { title: 'Attendance', subtitle: 'Live biometric check-in logs & visitor history' },
-    'reports': { title: 'Reports & Analytics', subtitle: 'Export revenue, membership & retention metrics' },
+    'reports': { title: 'Reports', subtitle: 'Export revenue, membership & retention metrics' },
     'settings': { title: 'Settings', subtitle: 'Facility preferences & turnstile parameters' },
   };
 
   const currentInfo = tabTitles[currentTab] || { title: 'Dashboard', subtitle: 'Overview of your gym operations' };
 
   return (
-    <header className="w-full flex flex-col md:flex-row items-start md:items-center justify-between gap-3 py-3 px-6 select-none bg-transparent">
-      {/* Left: Page Title & Subtitle */}
-      <div>
-        <h1 className="text-2xl font-black text-[#252A30] tracking-tight leading-none">
-          {currentInfo.title}
-        </h1>
-        <p className="text-xs text-[#84909A] font-medium mt-1">
-          {currentInfo.subtitle}
-        </p>
+    <header className="w-full flex items-center justify-between gap-2.5 py-2.5 px-3.5 sm:px-6 sm:py-3 select-none bg-transparent">
+      {/* Left: Mobile Menu Button + Page Title */}
+      <div className="flex items-center gap-2.5 min-w-0">
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="lg:hidden w-9 h-9 rounded-xl bg-[#252A30] text-[#FFD447] flex items-center justify-center shrink-0 shadow-xs active:scale-95 transition-transform"
+            aria-label="Open admin menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
+
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-2xl font-black text-[#252A30] tracking-tight leading-tight truncate">
+            {currentInfo.title}
+          </h1>
+          <p className="hidden sm:block text-xs text-[#84909A] font-medium mt-0.5 truncate">
+            {currentInfo.subtitle}
+          </p>
+        </div>
       </div>
 
-      {/* Center/Right Controls */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Right Controls */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {/* Live Secureye WebSocket Status Pill */}
         <button
           type="button"
           onClick={() => setCurrentTab('biometric')}
-          className={`px-3 py-1.5 rounded-full border text-[11px] font-black flex items-center gap-1.5 shadow-xs transition-all ${
+          className={`px-2.5 sm:px-3 py-1.5 rounded-full border text-[10px] sm:text-[11px] font-black flex items-center gap-1.5 shadow-xs transition-all shrink-0 ${
             isDeviceOnline
               ? 'bg-[#36A875]/15 border-[#36A875]/40 text-[#237A54]'
               : isWsServerLive
@@ -81,17 +99,20 @@ export const TopNavbar: React.FC = () => {
           ) : (
             <WifiOff className="w-3.5 h-3.5 text-[#DC5555]" />
           )}
-          <span>
+          <span className="hidden sm:inline">
             {isDeviceOnline
               ? 'Secureye Online'
               : isWsServerLive
               ? 'WS Live • Awaiting Machine'
               : 'WS Connecting...'}
           </span>
+          <span className="sm:hidden">
+            {isDeviceOnline ? 'Online' : isWsServerLive ? 'WS Live' : 'WS Off'}
+          </span>
         </button>
 
-        {/* Global Search Pill */}
-        <div className="relative hidden sm:block">
+        {/* Global Search Pill (md+) */}
+        <div className="relative hidden md:block">
           <Search className="w-4 h-4 text-[#84909A] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -105,8 +126,11 @@ export const TopNavbar: React.FC = () => {
         {/* Notification Bell with Badge */}
         <div className="relative">
           <button
-            onClick={() => setShowNotifications(!showNotifications)}
-            className="w-8 h-8 rounded-full bg-white border border-[#DCE3E8] flex items-center justify-center text-[#252A30] hover:border-[#FFD447] shadow-xs transition-all relative"
+            onClick={() => {
+              setShowNotifications(!showNotifications);
+              setShowProfileMenu(false);
+            }}
+            className="w-9 h-9 sm:w-8 sm:h-8 rounded-full bg-white border border-[#DCE3E8] flex items-center justify-center text-[#252A30] hover:border-[#FFD447] shadow-xs transition-all relative"
             title="Notifications"
           >
             <Bell className="w-4 h-4 text-[#252A30]" />
@@ -117,9 +141,8 @@ export const TopNavbar: React.FC = () => {
             )}
           </button>
 
-          {/* Notifications Dropdown */}
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-[#DCE3E8] p-3 z-50 animate-fade-in text-xs">
+            <div className="absolute right-0 mt-2 w-72 sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-[#DCE3E8] p-3 z-50 animate-fade-in text-xs">
               <div className="flex items-center justify-between pb-2 border-b border-[#E9ECEF] mb-2 px-1">
                 <span className="font-extrabold text-[#252A30]">Notifications ({unreadCount})</span>
                 {unreadCount > 0 && (
@@ -140,9 +163,9 @@ export const TopNavbar: React.FC = () => {
                       n.isRead ? 'bg-[#F5F6F2]/60' : 'bg-[#FFF8E7] border border-[#FFD447]/40'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#252A30]">{n.title}</span>
-                      <span className="text-[10px] text-[#84909A]">{n.time}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-[#252A30] truncate">{n.title}</span>
+                      <span className="text-[10px] text-[#84909A] shrink-0">{n.time}</span>
                     </div>
                     <p className="text-[11px] text-[#84909A] mt-0.5 leading-snug">{n.message}</p>
                   </div>
@@ -155,8 +178,11 @@ export const TopNavbar: React.FC = () => {
         {/* Admin Profile Pill */}
         <div className="relative">
           <button
-            onClick={() => setShowProfileMenu(!showProfileMenu)}
-            className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full bg-white border border-[#DCE3E8] hover:border-[#FFD447] shadow-xs transition-all group"
+            onClick={() => {
+              setShowProfileMenu(!showProfileMenu);
+              setShowNotifications(false);
+            }}
+            className="flex items-center gap-1.5 sm:gap-2 p-1 sm:pr-2.5 rounded-full bg-white border border-[#DCE3E8] hover:border-[#FFD447] shadow-xs transition-all group"
           >
             <img
               src={adminProfile.avatar}
@@ -164,12 +190,11 @@ export const TopNavbar: React.FC = () => {
               className="w-7 h-7 rounded-full object-cover border border-[#DCE3E8]"
             />
             <span className="text-xs font-black text-[#252A30] hidden md:inline">{adminProfile.name}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-[#84909A] group-hover:text-[#252A30] transition-colors" />
+            <ChevronDown className="w-3.5 h-3.5 text-[#84909A] hidden sm:block group-hover:text-[#252A30] transition-colors" />
           </button>
 
-          {/* Profile Dropdown */}
           {showProfileMenu && (
-            <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-[#DCE3E8] p-2 z-50 animate-fade-in text-xs">
+            <div className="absolute right-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-xl border border-[#DCE3E8] p-2 z-50 animate-fade-in text-xs">
               <div className="px-3 py-2 border-b border-[#E9ECEF] mb-1">
                 <p className="font-extrabold text-[#252A30]">{adminProfile.name}</p>
                 <p className="text-[10px] text-[#84909A] truncate">{adminProfile.email}</p>
@@ -187,7 +212,6 @@ export const TopNavbar: React.FC = () => {
             </div>
           )}
         </div>
-
       </div>
     </header>
   );
