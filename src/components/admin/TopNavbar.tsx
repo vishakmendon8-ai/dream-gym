@@ -5,10 +5,9 @@ import {
   Bell, 
   ChevronDown, 
   Shield, 
-  Smartphone, 
-  LayoutDashboard, 
-  Copy, 
-  Check 
+  Radio,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 
 export const TopNavbar: React.FC = () => {
@@ -21,23 +20,16 @@ export const TopNavbar: React.FC = () => {
     markNotificationRead, 
     clearNotifications, 
     setCurrentTab,
-    activeView,
-    setActiveView
+    secureyeDevice,
+    biometricWsStreamStatus,
   } = useGym();
   
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [copiedLink, setCopiedLink] = useState<string | null>(null);
-
-  const copyUrl = (path: string, label: string) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5174';
-    const fullUrl = `${origin}${path}`;
-    navigator.clipboard.writeText(fullUrl);
-    setCopiedLink(label);
-    setTimeout(() => setCopiedLink(null), 2000);
-  };
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
+  const isDeviceOnline = secureyeDevice?.wsConnectionStatus === 'connected';
+  const isWsServerLive = biometricWsStreamStatus === 'connected';
 
   const tabTitles: Record<string, { title: string; subtitle: string }> = {
     'dashboard': { title: 'Dashboard', subtitle: 'Overview of your gym operations' },
@@ -46,9 +38,9 @@ export const TopNavbar: React.FC = () => {
     'plans': { title: 'Membership Plans', subtitle: 'Configure access packages & promotional pricing' },
     'subscriptions': { title: 'Subscriptions', subtitle: 'Track active memberships, renewals & expiries' },
     'payments': { title: 'Payments', subtitle: 'Razorpay billing transactions & revenue records' },
-    'biometric': { title: 'Biometric Management', subtitle: 'Enroll & manage 3-sample simulated fingerprints' },
-    'access-monitor': { title: 'Live Access Monitoring', subtitle: 'Hardware entrance monitor & real-time verification' },
-    'attendance': { title: 'Attendance', subtitle: 'Daily facility check-in logs & visitor history' },
+    'biometric': { title: 'Biometric Management', subtitle: 'Live Secureye WebSocket terminal (SN 102026020002110) & member ID mapping' },
+    'access-monitor': { title: 'Live Access Monitoring', subtitle: 'Real-time Secureye WebSocket entrance monitor & verification' },
+    'attendance': { title: 'Attendance', subtitle: 'Live biometric check-in logs & visitor history' },
     'reports': { title: 'Reports & Analytics', subtitle: 'Export revenue, membership & retention metrics' },
     'settings': { title: 'Settings', subtitle: 'Facility preferences & turnstile parameters' },
   };
@@ -69,6 +61,35 @@ export const TopNavbar: React.FC = () => {
 
       {/* Center/Right Controls */}
       <div className="flex flex-wrap items-center gap-3">
+        {/* Live Secureye WebSocket Status Pill */}
+        <button
+          type="button"
+          onClick={() => setCurrentTab('biometric')}
+          className={`px-3 py-1.5 rounded-full border text-[11px] font-black flex items-center gap-1.5 shadow-xs transition-all ${
+            isDeviceOnline
+              ? 'bg-[#36A875]/15 border-[#36A875]/40 text-[#237A54]'
+              : isWsServerLive
+              ? 'bg-[#FFF8E7] border-[#FFD447]/70 text-[#8A6112]'
+              : 'bg-white border-[#DCE3E8] text-[#84909A] hover:border-[#FFD447]'
+          }`}
+          title="Open Secureye Biometric WebSocket Management"
+        >
+          {isDeviceOnline ? (
+            <Wifi className="w-3.5 h-3.5 text-[#36A875]" />
+          ) : isWsServerLive ? (
+            <Radio className="w-3.5 h-3.5 text-[#E5A024] animate-pulse" />
+          ) : (
+            <WifiOff className="w-3.5 h-3.5 text-[#DC5555]" />
+          )}
+          <span>
+            {isDeviceOnline
+              ? 'Secureye Online'
+              : isWsServerLive
+              ? 'WS Live • Awaiting Machine'
+              : 'WS Connecting...'}
+          </span>
+        </button>
+
         {/* Global Search Pill */}
         <div className="relative hidden sm:block">
           <Search className="w-4 h-4 text-[#84909A] absolute left-3.5 top-1/2 -translate-y-1/2" />

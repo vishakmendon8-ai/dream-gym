@@ -15,8 +15,16 @@ import { SettingsView } from './components/admin/SettingsView';
 import { AddMemberModal } from './components/admin/AddMemberModal';
 import { MemberApp } from './components/member/MemberApp';
 
+import { CheckCircle2, XCircle, X } from 'lucide-react';
+
 const MainLayout: React.FC = () => {
-  const { activeView, currentTab, setIsAddMemberOpen } = useGym();
+  const {
+    activeView,
+    currentTab,
+    setIsAddMemberOpen,
+    liveScanBanner,
+    dismissLiveScanBanner,
+  } = useGym();
 
   // If URL, hash, or state is set to Member App, render the Member App
   const isMember = activeView === 'member' || 
@@ -79,6 +87,60 @@ const MainLayout: React.FC = () => {
 
       {/* Global Add Member Modal */}
       <AddMemberModal />
+
+      {/* Global Live Secureye Biometric Scan Verdict Toast */}
+      {liveScanBanner && (
+        <div
+          className={`fixed bottom-5 right-5 z-50 max-w-sm w-full rounded-2xl p-4 shadow-2xl border-2 backdrop-blur-md animate-fade-in ${
+            liveScanBanner.status === 'granted'
+              ? 'bg-[#252A30]/95 border-[#36A875] text-white'
+              : 'bg-[#252A30]/95 border-[#DC5555] text-white'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                  liveScanBanner.status === 'granted' ? 'bg-[#36A875]' : 'bg-[#DC5555]'
+                }`}
+              >
+                {liveScanBanner.status === 'granted' ? (
+                  <CheckCircle2 className="w-5 h-5 text-white" />
+                ) : (
+                  <XCircle className="w-5 h-5 text-white" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <p
+                  className={`text-[10px] font-black uppercase tracking-widest ${
+                    liveScanBanner.status === 'granted' ? 'text-[#36A875]' : 'text-[#DC5555]'
+                  }`}
+                >
+                  {liveScanBanner.status === 'granted'
+                    ? 'Secureye Access Granted'
+                    : 'Secureye Access Denied'}
+                </p>
+                <p className="text-sm font-black truncate mt-0.5">{liveScanBanner.memberName}</p>
+                <p className="text-[11px] text-white/75 mt-0.5 leading-snug">
+                  {liveScanBanner.reason}
+                </p>
+                <p className="text-[10px] font-mono text-[#FFD447] mt-1">
+                  Bio ID: {liveScanBanner.biometricUserId} &bull; {liveScanBanner.verifyMode} &bull; SN{' '}
+                  {liveScanBanner.deviceSn}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={dismissLiveScanBanner}
+              className="p-1 rounded-lg text-white/60 hover:text-white hover:bg-white/10 shrink-0"
+              aria-label="Dismiss biometric scan alert"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

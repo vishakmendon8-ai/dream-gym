@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   Member, 
   MemberStatus,
@@ -33,6 +33,29 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
+import {
+  CloudBiometricDeviceState,
+  buildAdminWsUrl,
+  fetchBiometricStatus,
+} from '../services/biometricCloudClient';
+
+const DEFAULT_BIOMETRIC_WS_BACKEND =
+  import.meta.env.VITE_BIOMETRIC_WS_BACKEND_URL ||
+  'https://dream-gym-1.onrender.com';
+
+export interface LiveBiometricScanBanner {
+  id: string;
+  status: 'granted' | 'denied';
+  memberId: string;
+  memberName: string;
+  planName?: string;
+  biometricUserId: string;
+  verifyMode: string;
+  reason: string;
+  timestamp: string;
+  deviceSn: string;
+  avatar?: string;
+}
 
 const STORAGE_KEYS = {
   members: 'dreamgym_members_v1',
@@ -85,6 +108,13 @@ interface GymContextType {
   payments: PaymentRecord[];
   notifications: NotificationItem[];
   biometricSyncLogs: BiometricSyncLog[];
+
+  // Live Secureye Cloud WebSocket Telemetry (App-Wide)
+  biometricBackendUrl: string;
+  biometricWsStreamStatus: 'connected' | 'connecting' | 'disconnected';
+  secureyeDevice: CloudBiometricDeviceState | null;
+  liveScanBanner: LiveBiometricScanBanner | null;
+  dismissLiveScanBanner: () => void;
 
   // Selected Member
   selectedMember: Member | null;
@@ -160,6 +190,270 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [firebaseConnected, setFirebaseConnected] = useState<boolean>(true);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // App-wide live Secureye Cloud WebSocket state (https://dream-gym-1.onrender.com)
+  const [biometricBackendUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('dreamgym_cloudrun_ws_url') || DEFAULT_BIOMETRIC_WS_BACKEND;
+    }
+    return DEFAULT_BIOMETRIC_WS_BACKEND;
+  });
+  const [biometricWsStreamStatus, setBiometricWsStreamStatus] = useState<
+    'connected' | 'connecting' | 'disconnected'
+  >('disconnected');
+  const [secureyeDevice, setSecureyeDevice] = useState<CloudBiometricDeviceState | null>(null);
+  const [liveScanBanner, setLiveScanBanner] = useState<LiveBiometricScanBanner | null>(null);
+  const dismissLiveScanBanner = () => setLiveScanBanner(null);
+
+  const membersRef = useRef<Member[]>(members);
+  useEffect(() => {
+    membersRef.current = members;
+  }, [members]);
+
+  const soundEnabledRef = useRef<boolean>(soundEnabled);
+  useEffect(() => {
+    soundEnabledRef.current = soundEnabled;
+  }, [soundEnabled]);
+
+  // Persistent App-Wide WebSocket subscription to wss://dream-gym-1.onrender.com/ws/admin
+  useEffect(() => {
+    if (typeof window === 'undefined' || !biometricBackendUrl) return;
+
+    let cancelled = false;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let bannerTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerTone = (type: 'granted' | 'denied') => {
+      if (!soundEnabledRef.current) return;
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        if (type === 'granted') {
+          osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
+          osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.08);
+          osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.16);
+          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.35);
+        } else {
+          osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+          osc.frequency.setValueAtTime(160, audioCtx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.35);
+        }
+      } catch {}
+    };
+
+    const handleIncomingWsAttendance = (rawEvt: any) => {
+      const bioId = String(rawEvt?.biometricUserId || '').trim();
+      const deviceSn = String(rawEvt?.deviceSn || '102026020002110');
+      const verifyMode = String(rawEvt?.verifyMode || 'Fingerprint');
+      const nowTime = new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
+      const todayDate = new Date().toISOString().split('T')[0];
+
+      // Match biometricUserId against Dream Gym members (biometricId or member id)
+      const matched = membersRef.current.find(
+        (m) =>
+          (m.biometricId && m.biometricId.trim().toLowerCase() === bioId.toLowerCase()) ||
+          m.id.trim().toLowerCase() === bioId.toLowerCase()
+      );
+
+      let status: 'granted' | 'denied' = rawEvt?.status === 'granted' ? 'granted' : 'denied';
+      let reason = rawEvt?.reason || 'Biometric User ID not linked to any Dream Gym member.';
+      let memberId = rawEvt?.memberId || (matched ? matched.id : `UNLINKED:${bioId}`);
+      let memberName = rawEvt?.memberName || (matched ? matched.name : `Unlinked User (${bioId})`);
+      let avatar =
+        matched?.avatar ||
+        rawEvt?.avatar ||
+        'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80';
+
+      // Re-validate locally against live Dream Gym members list when backend ran without Firestore creds
+      if (matched) {
+        memberId = matched.id;
+        memberName = matched.name;
+        avatar = matched.avatar;
+        const expiry = matched.expiryDate ? new Date(matched.expiryDate) : null;
+        if (expiry && !Number.isNaN(expiry.getTime())) {
+          expiry.setHours(23, 59, 59, 999);
+        }
+        const isExpired =
+          matched.status === 'expired' ||
+          (expiry && !Number.isNaN(expiry.getTime()) && expiry.getTime() < Date.now());
+        if (matched.status === 'inactive') {
+          status = 'denied';
+          reason = 'Membership account is inactive / suspended.';
+        } else if (isExpired) {
+          status = 'denied';
+          reason = `Membership expired on ${matched.expiryDate}.`;
+        } else if (matched.status === 'pending') {
+          status = 'denied';
+          reason = 'Membership payment pending activation.';
+        } else {
+          status = 'granted';
+          reason = `Active ${matched.planName} verified via Secureye WebSocket (${verifyMode}).`;
+        }
+      }
+
+      const recordId = rawEvt?.id || `att-ws-${Date.now()}`;
+      const newAttendance: AttendanceRecord = {
+        id: recordId,
+        memberId,
+        memberName,
+        avatar,
+        checkInDate: rawEvt?.checkInDate || todayDate,
+        checkInTime: rawEvt?.checkInTime || nowTime,
+        timestamp: rawEvt?.timestamp || `${todayDate} ${nowTime}`,
+        method: 'biometric',
+        verifyMode,
+        status,
+        reason,
+        terminalId: rawEvt?.terminalId || `Secureye WS (${deviceSn})`,
+        deviceSn,
+        biometricUserId: bioId,
+        source: 'secureye_websocket',
+      };
+
+      const newAccessLog: AccessLog = {
+        id: `log-${recordId}`,
+        memberId,
+        memberName,
+        avatar,
+        time: rawEvt?.checkInTime || nowTime,
+        status,
+        reason,
+        terminalId: newAttendance.terminalId,
+        deviceSn,
+        biometricUserId: bioId,
+        source: 'secureye_websocket',
+      };
+
+      setAttendance((prev) =>
+        prev.some((a) => a.id === recordId) ? prev : [newAttendance, ...prev]
+      );
+      setAccessLogs((prev) =>
+        prev.some((l) => l.id === newAccessLog.id) ? prev : [newAccessLog, ...prev]
+      );
+      setNotifications((prev) => [
+        {
+          id: `notif-ws-${Date.now()}`,
+          title: status === 'granted' ? 'Biometric Check-In Granted' : 'Biometric Check-In Denied',
+          message: `${memberName} (Bio ID: ${bioId}) — ${reason}`,
+          date: 'Today',
+          time: nowTime,
+          category: status === 'granted' ? 'membership' : 'alert',
+          isRead: false,
+        },
+        ...prev,
+      ]);
+
+      if (matched && status === 'granted') {
+        const updatedCount = (matched.totalCheckIns || 0) + 1;
+        setMembers((prev) =>
+          prev.map((m) =>
+            m.id === matched.id
+              ? { ...m, totalCheckIns: updatedCount, lastCheckIn: `${todayDate} ${nowTime}` }
+              : m
+          )
+        );
+        setDoc(
+          doc(db, 'members', matched.id),
+          { totalCheckIns: updatedCount, lastCheckIn: `${todayDate} ${nowTime}` },
+          { merge: true }
+        ).catch(() => {});
+      }
+
+      triggerTone(status);
+
+      setLiveScanBanner({
+        id: recordId,
+        status,
+        memberId,
+        memberName,
+        planName: matched?.planName,
+        biometricUserId: bioId,
+        verifyMode,
+        reason,
+        timestamp: newAttendance.timestamp,
+        deviceSn,
+        avatar,
+      });
+
+      if (bannerTimer) clearTimeout(bannerTimer);
+      bannerTimer = setTimeout(() => {
+        if (!cancelled) setLiveScanBanner(null);
+      }, 9000);
+    };
+
+    // Initial HTTP status probe (also wakes Render free instance immediately on page load)
+    fetchBiometricStatus(biometricBackendUrl).then((res) => {
+      if (!cancelled && res.ok && res.device) {
+        setSecureyeDevice(res.device);
+      }
+    });
+
+    const connectWs = () => {
+      if (cancelled) return;
+      const adminWsUrl = buildAdminWsUrl(biometricBackendUrl);
+      if (!adminWsUrl) return;
+
+      setBiometricWsStreamStatus('connecting');
+      try {
+        ws = new WebSocket(adminWsUrl);
+      } catch {
+        setBiometricWsStreamStatus('disconnected');
+        reconnectTimer = setTimeout(connectWs, 5000);
+        return;
+      }
+
+      ws.onopen = () => {
+        if (!cancelled) setBiometricWsStreamStatus('connected');
+      };
+
+      ws.onmessage = (ev) => {
+        if (cancelled) return;
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'welcome' && Array.isArray(msg.data?.devices) && msg.data.devices[0]) {
+            setSecureyeDevice(msg.data.devices[0]);
+          } else if (msg.type === 'device_status' && msg.data) {
+            setSecureyeDevice(msg.data);
+          } else if (msg.type === 'attendance_event' && msg.data) {
+            handleIncomingWsAttendance(msg.data);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        if (cancelled) return;
+        setBiometricWsStreamStatus('disconnected');
+        reconnectTimer = setTimeout(connectWs, 5000);
+      };
+
+      ws.onerror = () => {
+        if (!cancelled) setBiometricWsStreamStatus('disconnected');
+      };
+    };
+
+    connectWs();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (bannerTimer) clearTimeout(bannerTimer);
+      if (ws) {
+        try { ws.close(); } catch {}
+      }
+    };
+  }, [biometricBackendUrl]);
 
   // Real-time Firestore subscriptions for Secureye biometric attendance, access logs, and sync logs
   useEffect(() => {
@@ -904,6 +1198,11 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       payments,
       notifications,
       biometricSyncLogs,
+      biometricBackendUrl,
+      biometricWsStreamStatus,
+      secureyeDevice,
+      liveScanBanner,
+      dismissLiveScanBanner,
       selectedMember,
       setSelectedMember,
       addMember,

@@ -10,7 +10,7 @@ interface AttendanceViewProps {
 }
 
 export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab }) => {
-  const { attendance, setActiveView } = useGym();
+  const { attendance, setCurrentTab } = useGym();
   const [filterStatus, setFilterStatus] = useState<'all' | 'granted' | 'denied'>('all');
 
   const filteredLogs = attendance.filter(item => {
@@ -27,18 +27,18 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab })
           <div className="flex items-center gap-2 mb-1">
             <span className="w-2.5 h-2.5 rounded-full bg-status-success animate-ping" />
             <h1 className="text-xl lg:text-2xl font-black text-graphite tracking-tight">
-              Live Gate Access & Attendance Stream
+              Live Gate Access &amp; Attendance Stream
             </h1>
           </div>
           <p className="text-xs text-graphite-muted">
-            Synchronized external hardware turnstile and optical fingerprint access events.
+            Real-time Secureye WebSocket attendance punches synchronized automatically with Dream Gym.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <Button
             size="sm"
-            onClick={() => onNavigateTab ? onNavigateTab('biometric') : setActiveView('biometric')}
+            onClick={() => onNavigateTab ? onNavigateTab('biometric') : setCurrentTab('biometric')}
             icon={<Fingerprint className="w-4 h-4 text-graphite" />}
           >
             Open Biometric Device
@@ -88,7 +88,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab })
               <tr className="bg-cloud-grey/60 border-b border-cloud-border text-[11px] font-bold text-graphite-muted uppercase tracking-wider">
                 <th className="py-3.5 px-4">Time</th>
                 <th className="py-3.5 px-4">Member</th>
-                <th className="py-3.5 px-4">Terminal & Gate</th>
+                <th className="py-3.5 px-4">Terminal &amp; Gate</th>
                 <th className="py-3.5 px-4">Authentication Method</th>
                 <th className="py-3.5 px-4">Turnstile Verdict</th>
                 <th className="py-3.5 px-4">Notes / Reason</th>
@@ -107,23 +107,35 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab })
                         alt={log.memberName}
                         className="w-8 h-8 rounded-full object-cover border border-cloud-border"
                       />
-                      <span className="font-bold text-graphite">{log.memberName}</span>
+                      <div>
+                        <span className="font-bold text-graphite block">{log.memberName}</span>
+                        {log.biometricUserId && (
+                          <span className="font-mono text-[10px] text-graphite-muted">
+                            Bio ID: {log.biometricUserId}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="py-3 px-4 text-graphite-muted font-medium">
-                    {log.terminalId}
+                    <div>{log.terminalId}</div>
+                    {log.source === 'secureye_websocket' && (
+                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-[#36A875]/15 text-[#237A54] text-[9px] font-black uppercase">
+                        Secureye Live WS
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-4">
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-control bg-cloud-grey text-graphite text-[11px] font-semibold">
                       <Fingerprint className="w-3 h-3 text-yellow-active" />
-                      Biometric Optical
+                      {log.verifyMode || 'Biometric Optical'}
                     </span>
                   </td>
                   <td className="py-3 px-4">
                     <Badge status={log.status} />
                   </td>
                   <td className="py-3 px-4 text-graphite-muted text-[11px]">
-                    {log.reason || 'Turnstile unlocked • 1 Person Pass-through'}
+                    {log.reason || 'Verified biometric check-in'}
                   </td>
                 </tr>
               ))}

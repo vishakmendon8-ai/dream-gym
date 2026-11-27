@@ -24,7 +24,11 @@ export const AccessMonitorView: React.FC = () => {
     accessLogs, 
     simulateAccessScan, 
     soundEnabled, 
-    setSoundEnabled 
+    setSoundEnabled,
+    secureyeDevice,
+    biometricWsStreamStatus,
+    liveScanBanner,
+    setCurrentTab,
   } = useGym();
 
   const [inputToken, setInputToken] = useState('');
@@ -36,11 +40,11 @@ export const AccessMonitorView: React.FC = () => {
     timestamp: string;
   }>({
     status: 'idle',
-    message: 'Scanner Standby: Place finger on optical sensor or enter token.',
+    message: 'Secureye WebSocket Standby: Scan finger on wall terminal (SN 102026020002110) or enter token.',
     timestamp: '--:--:--'
   });
 
-  const { isSensorConnected, sensorName, isReadingData, detectUsbDevice, lastDataRead } = useUsbBiometric();
+  const { isSensorConnected, sensorName, isReadingData, lastDataRead } = useUsbBiometric();
 
   const handleScan = async (tokenOrId: string) => {
     if (!tokenOrId.trim()) return;
@@ -58,6 +62,26 @@ export const AccessMonitorView: React.FC = () => {
     });
   };
 
+  // Automatically update big Kiosk screen whenever a REAL Secureye WebSocket scan arrives
+  useEffect(() => {
+    if (!liveScanBanner) return;
+    const matched = members.find((m) => m.id === liveScanBanner.memberId);
+    setCurrentVerdict({
+      status: liveScanBanner.status,
+      member: matched || {
+        id: liveScanBanner.memberId,
+        name: liveScanBanner.memberName,
+        planName: liveScanBanner.planName || 'Biometric User',
+      },
+      message: `${liveScanBanner.reason} (Secureye WS • Bio ID ${liveScanBanner.biometricUserId})`,
+      timestamp: new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    });
+  }, [liveScanBanner, members]);
+
   // If physical USB scanner streams token data, automatically evaluate scan
   useEffect(() => {
     if (lastDataRead) {
@@ -67,6 +91,8 @@ export const AccessMonitorView: React.FC = () => {
 
   const activeMembers = members.filter(m => m.status === 'active' && m.biometricRegistered);
   const expiredMembers = members.filter(m => m.status === 'expired');
+  const isSecureyeOnline = secureyeDevice?.wsConnectionStatus === 'connected';
+  const isWsServerLive = biometricWsStreamStatus === 'connected';
 
   return (
     <div className="space-y-6">
@@ -74,39 +100,43 @@ export const AccessMonitorView: React.FC = () => {
       <div className="bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-[#DCE3E8] shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#36A875] animate-ping" />
+            <span className={`w-2.5 h-2.5 rounded-full ${isSecureyeOnline ? 'bg-[#36A875] animate-ping' : 'bg-[#FFD447]'}`} />
             <h1 className="text-xl lg:text-2xl font-black text-[#252A30] tracking-tight">
-              Live Access Monitoring & Turnstile Kiosk
+              Live Access Monitoring &amp; Secureye Entrance Kiosk
             </h1>
           </div>
           <p className="text-xs text-[#84909A]">
-            Real-time biometric entrance controller, active turnstiles telemetry, audio verdicts, and visitor logs.
+            Real-time Secureye WebSocket entrance monitor (<code>wss://dream-gym-1.onrender.com/biometric</code>), audio verdicts, and live visitor logs.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* USB Sensor Status Pill */}
-          <div 
-            onClick={!isSensorConnected ? detectUsbDevice : undefined}
+          {/* Real Secureye WebSocket Status Pill */}
+          <button
+            type="button"
+            onClick={() => setCurrentTab('biometric')}
             className={`px-3 py-1.5 rounded-xl border text-xs font-black flex items-center gap-2 transition-all ${
-              isSensorConnected || isReadingData
+              isSecureyeOnline
                 ? 'bg-[#36A875]/10 border-[#36A875]/30 text-[#36A875]'
-                : 'bg-white border-[#DCE3E8] text-[#84909A] hover:border-[#FFD447] cursor-pointer'
+                : isWsServerLive
+                ? 'bg-[#FFF8E7] border-[#FFD447]/70 text-[#8A6112]'
+                : 'bg-white border-[#DCE3E8] text-[#84909A] hover:border-[#FFD447]'
             }`}
-            title={isSensorConnected ? `${sensorName} connected` : 'Click to detect USB sensor'}
+            title="Open Biometric Management"
           >
             <span className={`w-2 h-2 rounded-full ${
-              isReadingData ? 'bg-[#FFD447] animate-ping' : isSensorConnected ? 'bg-[#36A875]' : 'bg-[#84909A]'
+              isSecureyeOnline ? 'bg-[#36A875] animate-ping' : isWsServerLive ? 'bg-[#E5A024]' : 'bg-[#DC5555]'
             }`} />
             <span>
-              {isReadingData ? 'Reading USB...' : isSensorConnected ? 'Sensor Connected' : 'Sensor Not Detected'}
+              {isSecureyeOnline
+                ? `Secureye SN ${secureyeDevice?.serialNumber} Connected`
+                : isWsServerLive
+                ? 'Cloud WS Ready (Awaiting Device)'
+                : isSensorConnected || isReadingData
+                ? `${sensorName} USB Active`
+                : 'WS Reconnecting...'}
             </span>
-          </div>
-
-          <div className="px-3.5 py-1.5 rounded-xl bg-[#36A875]/10 border border-[#36A875]/30 text-[#36A875] text-xs font-black flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#36A875]" />
-            <span>Turnstile Gates Online</span>
-          </div>
+          </button>
 
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
@@ -129,7 +159,9 @@ export const AccessMonitorView: React.FC = () => {
           <div className="flex items-center justify-between pb-3 border-b border-[#3E4550]">
             <div className="flex items-center gap-2">
               <Fingerprint className="w-5 h-5 text-[#FFD447]" />
-              <span className="font-bold text-xs uppercase tracking-wider text-[#A0AEC0]">Entrance Gate A • Optical Sensor 500 DPI</span>
+              <span className="font-bold text-xs uppercase tracking-wider text-[#A0AEC0]">
+                Secureye Entrance Terminal • SN {secureyeDevice?.serialNumber || '102026020002110'}
+              </span>
             </div>
             <span className="font-mono text-xs text-[#FFD447] font-black">
               {currentVerdict.timestamp}
