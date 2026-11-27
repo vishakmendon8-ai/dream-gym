@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { useGym } from '../../context/GymContext';
 import { Badge } from '../common/Badge';
-import { Clock, Search, Fingerprint, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
+import { Clock, Search, Fingerprint, RefreshCw, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { Button } from '../common/Button';
 import { AdminTab } from '../../types/gym';
+import { BiometricMachineStatusCard } from '../common/BiometricMachineStatusCard';
 
 interface AttendanceViewProps {
   onNavigateTab?: (tab: AdminTab) => void;
 }
 
 export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab }) => {
-  const { attendance, setCurrentTab } = useGym();
+  const { attendance, setCurrentTab, clearAttendance } = useGym();
   const [filterStatus, setFilterStatus] = useState<'all' | 'granted' | 'denied'>('all');
 
   const filteredLogs = attendance.filter(item => {
@@ -36,6 +37,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab })
         </div>
 
         <div className="flex items-center gap-3">
+          {attendance.length > 0 && (
+            <button
+              onClick={clearAttendance}
+              className="px-3 py-1.5 rounded-control text-xs font-semibold bg-white text-graphite-muted hover:text-status-error border border-cloud-border hover:border-status-error/40 transition-all flex items-center gap-1.5 shadow-sm"
+              title="Clear current view activity"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Clear Activity
+            </button>
+          )}
           <Button
             size="sm"
             onClick={() => onNavigateTab ? onNavigateTab('biometric') : setCurrentTab('biometric')}
@@ -45,6 +56,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ onNavigateTab })
           </Button>
         </div>
       </div>
+
+      {/* Biometric Machine Real-Time Connection Indicator */}
+      <BiometricMachineStatusCard />
 
       {/* Filter row */}
       <div className="flex items-center gap-2">
