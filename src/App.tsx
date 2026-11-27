@@ -86,83 +86,89 @@ const MainLayout: React.FC = () => {
   ];
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-[#F5F6F2] text-[#252A30] font-sans antialiased selection:bg-[#FFD447] selection:text-[#252A30]">
-      {/* Desktop Fixed Sidebar + Mobile Slide-Over Drawer */}
-      <AdminSidebar
-        mobileOpen={mobileMenuOpen}
-        onCloseMobile={() => setMobileMenuOpen(false)}
-      />
+    <div className="min-h-[100dvh] w-full bg-[#E5E8E3] flex justify-center font-sans antialiased selection:bg-[#FFD447] selection:text-[#252A30]">
+      {/* Phone-Only Mobile App Shell (full-bleed on phones, 430px centered mobile frame on wide screens) */}
+      <div className="phone-only-shell w-full max-w-[430px] h-[100dvh] bg-[#F5F6F2] text-[#252A30] flex flex-col overflow-hidden relative shadow-[0_0_40px_rgba(37,42,48,0.14)] border-x border-[#DCE3E8]/80">
+        {/* Slide-Over Mobile Navigation Drawer */}
+        <AdminSidebar
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
+        />
 
-      {/* Main Viewport: Scrollable Cloud White Workspace */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto overflow-x-hidden">
-        {/* Top Navigation Bar */}
-        <div className="sticky top-0 z-40 bg-[#F5F6F2]/95 backdrop-blur-md border-b border-[#DCE3E8]/60">
+        {/* Row 1: Compact Sticky Top Navigation Bar */}
+        <div className="shrink-0 z-30 bg-[#F5F6F2] border-b border-[#DCE3E8]/70">
           <TopNavbar onOpenMobileMenu={() => setMobileMenuOpen(true)} />
         </div>
 
-        {/* Dynamic Tab Content Area (extra bottom padding on mobile for fixed bottom nav) */}
-        <main className="flex-1 p-3.5 sm:p-5 lg:p-8 pb-24 lg:pb-8 max-w-[1600px] w-full mx-auto">
+        {/* Row 2: Scrollable Content Area (strictly ABOVE bottom nav bar — zero overlap possible) */}
+        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3.5 pt-3.5 pb-10">
           {renderActiveTab()}
         </main>
-      </div>
 
-      {/* Mobile Bottom Navigation Bar (< lg) */}
-      <nav
-        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[#252A30]/98 backdrop-blur-md border-t border-[#353C46] px-2 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,0.18)]"
-        aria-label="Mobile admin navigation"
-      >
-        <div className="grid grid-cols-5 gap-1 max-w-md mx-auto">
-          {mobileQuickTabs.map((item) => {
-            const isActive =
-              currentTab === item.id ||
-              (item.id === 'dashboard' && currentTab === 'overview');
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setCurrentTab(item.id)}
-                className={`relative flex flex-col items-center justify-center py-1.5 rounded-xl transition-all active:scale-95 ${
-                  isActive
-                    ? 'text-[#FFD447] bg-white/10'
-                    : 'text-[#A0AEC0] hover:text-white'
-                }`}
-              >
-                <div className="relative">
-                  {item.icon}
-                  {item.id === 'biometric' && isSecureyeOnline && (
-                    <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-[#36A875] ring-2 ring-[#252A30]" />
-                  )}
-                </div>
-                <span className="text-[10px] font-bold mt-0.5 leading-none">
-                  {item.label}
-                </span>
-              </button>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen(true)}
-            className="flex flex-col items-center justify-center py-1.5 rounded-xl text-[#A0AEC0] hover:text-white transition-all active:scale-95"
-          >
-            <Menu className="w-5 h-5" />
-            <span className="text-[10px] font-bold mt-0.5 leading-none">More</span>
-          </button>
-        </div>
-      </nav>
-
-      {/* Global Add Member Modal */}
-      <AddMemberModal />
-
-      {/* Global Live Secureye Biometric Scan Verdict Toast */}
-      {liveScanBanner && (
-        <div
-          className={`fixed bottom-20 lg:bottom-5 left-3 right-3 sm:left-auto sm:right-5 z-50 sm:max-w-sm sm:w-full rounded-2xl p-4 shadow-2xl border-2 backdrop-blur-md animate-fade-in ${
-            liveScanBanner.status === 'granted'
-              ? 'bg-[#252A30]/95 border-[#36A875] text-white'
-              : 'bg-[#252A30]/95 border-[#DC5555] text-white'
-          }`}
+        {/* Row 3: Solid Opaque Docked Mobile Bottom Navigation Bar */}
+        <nav
+          className="shrink-0 relative z-40 bg-[#252A30] text-white border-t border-[#353C46] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,0.22)]"
+          aria-label="Mobile admin navigation"
         >
+          <div className="grid grid-cols-5 gap-1">
+            {mobileQuickTabs.map((item) => {
+              const isActive =
+                currentTab === item.id ||
+                (item.id === 'dashboard' && currentTab === 'overview');
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setCurrentTab(item.id)}
+                  className={`relative flex flex-col items-center justify-center py-1.5 rounded-xl transition-all active:scale-95 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD447] ${
+                    isActive
+                      ? 'bg-[#FFD447] text-[#252A30] font-black shadow-sm'
+                      : 'text-[#A0AEC0] hover:text-white'
+                  }`}
+                >
+                  <div className="relative">
+                    {item.icon}
+                    {item.id === 'biometric' && isSecureyeOnline && (
+                      <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-[#36A875] ring-2 ring-[#252A30]" />
+                    )}
+                  </div>
+                  <span className="text-[10px] font-bold mt-0.5 leading-none">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all active:scale-95 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD447] ${
+                mobileMenuOpen ||
+                !mobileQuickTabs.some(
+                  (t) => t.id === currentTab || (t.id === 'dashboard' && currentTab === 'overview')
+                )
+                  ? 'bg-white/15 text-[#FFD447] font-black'
+                  : 'text-[#A0AEC0] hover:text-white'
+              }`}
+            >
+              <Menu className="w-5 h-5" />
+              <span className="text-[10px] font-bold mt-0.5 leading-none">More</span>
+            </button>
+          </div>
+        </nav>
+
+        {/* Global Add Member Modal */}
+        <AddMemberModal />
+
+        {/* Global Live Secureye Biometric Scan Verdict Toast */}
+        {liveScanBanner && (
+          <div
+            className={`fixed bottom-20 left-3 right-3 max-w-[404px] mx-auto z-50 rounded-2xl p-4 shadow-2xl border-2 backdrop-blur-md animate-fade-in ${
+              liveScanBanner.status === 'granted'
+                ? 'bg-[#252A30]/95 border-[#36A875] text-white'
+                : 'bg-[#252A30]/95 border-[#DC5555] text-white'
+            }`}
+          >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3 min-w-0">
               <div
@@ -207,6 +213,7 @@ const MainLayout: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

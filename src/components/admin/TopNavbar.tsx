@@ -52,14 +52,14 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
   const currentInfo = tabTitles[currentTab] || { title: 'Dashboard', subtitle: 'Overview of your gym operations' };
 
   return (
-    <header className="w-full flex items-center justify-between gap-2.5 py-2.5 px-3.5 sm:px-6 sm:py-3 select-none bg-transparent">
+    <header className="w-full flex items-center justify-between gap-2 py-2.5 px-3.5 select-none bg-transparent">
       {/* Left: Mobile Menu Button + Page Title */}
       <div className="flex items-center gap-2.5 min-w-0">
         {onOpenMobileMenu && (
           <button
             type="button"
             onClick={onOpenMobileMenu}
-            className="lg:hidden w-9 h-9 rounded-xl bg-[#252A30] text-[#FFD447] flex items-center justify-center shrink-0 shadow-xs active:scale-95 transition-transform"
+            className="w-9 h-9 rounded-xl bg-[#252A30] text-[#FFD447] flex items-center justify-center shrink-0 shadow-xs active:scale-95 transition-transform"
             aria-label="Open admin menu"
           >
             <Menu className="w-5 h-5" />
@@ -67,22 +67,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
         )}
 
         <div className="min-w-0">
-          <h1 className="text-lg sm:text-2xl font-black text-[#252A30] tracking-tight leading-tight truncate">
+          <h1 className="text-base font-black text-[#252A30] tracking-tight leading-tight truncate">
             {currentInfo.title}
           </h1>
-          <p className="hidden sm:block text-xs text-[#84909A] font-medium mt-0.5 truncate">
+          <p className="text-[10px] text-[#84909A] font-medium truncate">
             {currentInfo.subtitle}
           </p>
         </div>
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         {/* Live Biometric Status Pill */}
         <button
           type="button"
           onClick={() => setCurrentTab('biometric')}
-          className={`px-2.5 sm:px-3 py-1.5 rounded-full border text-[10px] sm:text-[11px] font-black flex items-center gap-1.5 shadow-xs transition-all shrink-0 ${
+          className={`px-2.5 py-1.5 rounded-full border text-[10px] font-black flex items-center gap-1.5 shadow-xs transition-all shrink-0 ${
             isDeviceOnline
               ? 'bg-[#36A875]/15 border-[#36A875]/40 text-[#237A54]'
               : isWsServerLive
@@ -98,29 +98,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
           ) : (
             <WifiOff className="w-3.5 h-3.5 text-[#DC5555]" />
           )}
-          <span className="hidden sm:inline">
-            {isDeviceOnline
-              ? 'Scanner Online'
-              : isWsServerLive
-              ? 'Cloud Sync Ready'
-              : 'Connecting...'}
-          </span>
-          <span className="sm:hidden">
+          <span>
             {isDeviceOnline ? 'Online' : isWsServerLive ? 'Ready' : 'Syncing'}
           </span>
         </button>
-
-        {/* Global Search Pill (md+) */}
-        <div className="relative hidden md:block">
-          <Search className="w-4 h-4 text-[#84909A] absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-44 lg:w-56 pl-9 pr-3 py-1.5 rounded-full bg-white/95 border border-[#DCE3E8] text-xs font-semibold text-[#252A30] placeholder:text-[#84909A] focus:outline-none focus:border-[#FFD447] focus:ring-2 focus:ring-[#FFD447]/30 shadow-xs transition-all"
-          />
-        </div>
 
         {/* Notification Bell with Badge */}
         <div className="relative">

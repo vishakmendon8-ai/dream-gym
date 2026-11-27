@@ -81,31 +81,28 @@ export const MemberApp: React.FC = () => {
     setActiveView 
   } = useGym();
 
-  // Master Vishak Mendon data (standard reference member MEM10042)
-  const masterVishak: Member = {
-    id: 'MEM10042',
-    name: 'Vishak Mendon',
-    email: 'vishak@gympro.club',
-    phone: '+91 98765 43210',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&fit=crop&crop=faces&q=80',
-    planId: plans[0]?.id || 'plan-monthly',
-    planName: 'Monthly Plan',
-    status: 'active',
-    startDate: '24 Nov 2025',
-    joinDate: '24 Nov 2025',
-    expiryDate: '24 Dec 2025',
-    daysLeft: 18,
-    totalCheckIns: 48,
-    attendanceCount: 48,
-    lastVisit: 'Today, 7:32 AM',
-    lastCheckIn: 'Today, 7:32 AM',
-    biometricId: 'BIO-10042',
-    biometricEnrolled: true,
-    biometricRegistered: true,
-    gender: 'Male',
-    dob: '1996-08-14',
-    emergencyContact: '+91 98765 00112',
-    healthNotes: 'Focus on Upper Body Strength & Hypertrophy'
+  // Empty unauthenticated member placeholder (genuine members log in using Admin-created credentials)
+  const emptyMemberPlaceholder: Member = {
+    id: '',
+    name: '',
+    email: '',
+    phone: '',
+    avatar: 'https://ui-avatars.com/api/?name=Member&background=FFD447&color=252A30&bold=true',
+    planId: '',
+    planName: 'No Plan Assigned',
+    status: 'pending',
+    startDate: '',
+    joinDate: '',
+    expiryDate: '',
+    daysLeft: 0,
+    totalCheckIns: 0,
+    attendanceCount: 0,
+    lastVisit: 'Never',
+    lastCheckIn: 'Never',
+    biometricId: '',
+    biometricEnrolled: false,
+    biometricRegistered: false,
+    emergencyContact: '',
   };
 
   // Always launch with the animated splash screen unless a deep-link ?screen= is provided
@@ -129,13 +126,15 @@ export const MemberApp: React.FC = () => {
       if (savedMemberId) {
         const found = members.find(m => m.id === savedMemberId);
         if (found) return found;
+        localStorage.removeItem('gympro_member_session');
       }
     }
-    return masterVishak;
+    return emptyMemberPlaceholder;
   });
 
   // Live-sync currentMember whenever the Gym Admin updates their profile or assigns a plan
   useEffect(() => {
+    if (!currentMember.id) return;
     const liveMember = members.find(m => m.id === currentMember.id);
     if (liveMember) {
       setCurrentMember(liveMember);
@@ -159,6 +158,9 @@ export const MemberApp: React.FC = () => {
           setCurrentScreen('home');
           return;
         }
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('gympro_member_session');
+        }
       }
       setCurrentScreen('login');
     }, 480);
@@ -175,8 +177,6 @@ export const MemberApp: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [currentScreen]);
-
-
 
   // Form States: Login
   const [loginEmail, setLoginEmail] = useState('');
@@ -239,7 +239,7 @@ export const MemberApp: React.FC = () => {
 
   // Auto-dispatch expiry notification if membership is expiring soon (<= 7 days)
   useEffect(() => {
-    if (currentMember && currentMember.daysLeft <= 7) {
+    if (currentMember && currentMember.id && currentMember.daysLeft <= 7) {
       NotificationService.dispatchExpiryAlert(currentMember).catch(() => {});
     }
   }, [currentMember.id, currentMember.daysLeft]);
@@ -247,25 +247,25 @@ export const MemberApp: React.FC = () => {
   // ----------------------------------------------------
   // Form States: Register (Screen 3)
   // ----------------------------------------------------
-  const [regName, setRegName] = useState('Vishak Mendon');
-  const [regPhone, setRegPhone] = useState('+91 98765 43210');
-  const [regEmail, setRegEmail] = useState('vishak@gympro.club');
-  const [regPassword, setRegPassword] = useState('password123');
-  const [regConfirmPassword, setRegConfirmPassword] = useState('password123');
+  const [regName, setRegName] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [regError, setRegError] = useState('');
 
   // Next auto-generated serial Member ID
-  const nextMemberId = `MEM${10000 + members.length + 42}`;
+  const nextMemberId = `GYM${1001 + members.length}`;
 
   // ----------------------------------------------------
   // Form States: Profile Setup (Screen 4)
   // ----------------------------------------------------
   const [setupGender, setSetupGender] = useState<'Male' | 'Female' | 'Other'>('Male');
-  const [setupDob, setSetupDob] = useState('1996-08-14');
+  const [setupDob, setSetupDob] = useState('');
   const [setupGoal, setSetupGoal] = useState('Muscle Building');
-  const [setupEmergency, setSetupEmergency] = useState('+91 98765 00112');
-  const [setupAvatar, setSetupAvatar] = useState('https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&fit=crop&crop=faces&q=80');
+  const [setupEmergency, setSetupEmergency] = useState('');
+  const [setupAvatar, setSetupAvatar] = useState('https://ui-avatars.com/api/?name=Member&background=FFD447&color=252A30&bold=true');
 
   // ----------------------------------------------------
   // Membership & Checkout States (Screens 5, 6, 7, 8, 9, 16)
@@ -287,10 +287,10 @@ export const MemberApp: React.FC = () => {
 
   // Razorpay Checkout states (Screen 7)
   const [razorpayMethod, setRazorpayMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
-  const [upiId, setUpiId] = useState('vishak@okhdfcbank');
-  const [cardNumber, setCardNumber] = useState('4532 8921 7843 1092');
-  const [cardExpiry, setCardExpiry] = useState('08/29');
-  const [cardCvv, setCardCvv] = useState('382');
+  const [upiId, setUpiId] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
   const [selectedBank, setSelectedBank] = useState('HDFC Bank');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentStepText, setPaymentStepText] = useState('Connecting to Razorpay...');
@@ -303,11 +303,11 @@ export const MemberApp: React.FC = () => {
     date: string;
     status: string;
   }>({
-    txId: 'pay_rzp_9841829048',
-    amount: 1499,
-    planName: 'Monthly Plan',
-    date: '24 Nov 2025, 11:42 AM',
-    status: 'Verified & Active'
+    txId: '',
+    amount: 0,
+    planName: '',
+    date: '',
+    status: ''
   });
 
   // ----------------------------------------------------
@@ -498,38 +498,36 @@ export const MemberApp: React.FC = () => {
     setLoginError('');
 
     const searchKey = loginEmail.trim().toLowerCase();
-    const usernamePart = searchKey.includes('@') ? searchKey.split('@')[0] : searchKey;
+    const cleanedSearchPhone = searchKey.replace(/\s+/g, '');
+    const enteredPassword = loginPassword.trim();
+
+    if (!searchKey || !enteredPassword) {
+      setLoginError('Please enter both your login ID/email and the password provided by your gym administrator.');
+      return;
+    }
 
     const matched = members.find(
       m => m.email.toLowerCase() === searchKey ||
            m.id.toLowerCase() === searchKey ||
-           m.phone.includes(searchKey) ||
-           m.name.toLowerCase().includes(usernamePart) ||
-           m.email.toLowerCase().includes(usernamePart)
+           (m.phone && m.phone.replace(/\s+/g, '').toLowerCase() === cleanedSearchPhone)
     );
 
-    if (matched) {
-      const expectedPassword = matched.password || 'password123';
-      if (loginPassword && loginPassword !== expectedPassword && loginPassword !== 'password123') {
-        setLoginError('Invalid password. Please enter the password provided by your gym administrator.');
-        return;
-      }
-
-      setCurrentMember(matched);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('gympro_member_session', matched.id);
-      }
-
-      setCurrentScreen('home');
-    } else if (loginEmail.toLowerCase().includes('vishak') || loginEmail.includes('10042') || loginEmail.includes('98765')) {
-      setCurrentMember(masterVishak);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('gympro_member_session', masterVishak.id);
-      }
-      setCurrentScreen('home');
-    } else {
-      setLoginError('Member account not found. Please verify your Email or Member ID provided by the gym owner.');
+    if (!matched) {
+      setLoginError('Member account not found. Ask your gym administrator to create your profile and credentials.');
+      return;
     }
+
+    if (!matched.password || enteredPassword !== matched.password) {
+      setLoginError('Invalid password. Please enter the exact password created by your gym administrator.');
+      return;
+    }
+
+    setCurrentMember(matched);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('gympro_member_session', matched.id);
+    }
+
+    setCurrentScreen('home');
   };
 
   const renderLoginScreen = () => (
@@ -649,32 +647,6 @@ export const MemberApp: React.FC = () => {
             >
               Login with Credentials
             </button>
-
-            {/* Quick Registered Accounts Autofill */}
-            <div className="pt-2">
-              <span className="text-[10px] font-bold text-graphite-muted block mb-1.5 uppercase tracking-wider">
-                Quick Select (Admin Created Accounts)
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { label: 'Rahul Sharma', id: 'GYM0341', email: 'rahul.sharma@gmail.com' },
-                  { label: 'Priya Singh', id: 'GYM0342', email: 'priya.singh@gmail.com' },
-                  { label: 'Aman Verma', id: 'GYM0343', email: 'aman.verma@gmail.com' },
-                ].map((demo) => (
-                  <button
-                    key={demo.id}
-                    type="button"
-                    onClick={() => {
-                      setLoginEmail(demo.email);
-                      setLoginPassword('password123');
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-cloud-grey/70 hover:bg-yellow-soft hover:text-graphite border border-cloud-border text-[10px] font-bold text-graphite-muted transition-all"
-                  >
-                    {demo.label} ({demo.id})
-                  </button>
-                ))}
-              </div>
-            </div>
           </form>
 
         </div>
@@ -1009,7 +981,7 @@ export const MemberApp: React.FC = () => {
           <span className="text-xs font-bold text-graphite block mb-2">Choose Athlete Profile Picture</span>
           <div className="flex justify-center gap-2.5">
             {[
-              { id: 'av1', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&fit=crop&crop=faces&q=80', label: 'Vishak' },
+              { id: 'av1', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&fit=crop&crop=faces&q=80', label: 'Athlete 1' },
               { id: 'av2', url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&fit=crop&crop=faces&q=80', label: 'Athlete M' },
               { id: 'av3', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&fit=crop&crop=faces&q=80', label: 'Athlete F' },
               { id: 'av4', url: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300&fit=crop&crop=faces&q=80', label: 'Trainer' }

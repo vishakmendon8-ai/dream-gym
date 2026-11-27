@@ -64,10 +64,10 @@ export interface LiveBiometricScanBanner {
 }
 
 const STORAGE_KEYS = {
-  members: 'dreamgym_members_v1',
-  plans: 'dreamgym_plans_v1',
-  subscriptions: 'dreamgym_subscriptions_v1',
-  payments: 'dreamgym_payments_v1',
+  members: 'dreamgym_members_v2',
+  plans: 'dreamgym_plans_v2',
+  subscriptions: 'dreamgym_subscriptions_v2',
+  payments: 'dreamgym_payments_v2',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -627,10 +627,20 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
-  const loginMember = (email: string, _password?: string) => {
-    const member = members.find(m => m.email.toLowerCase() === email.trim().toLowerCase());
+  const loginMember = (emailOrId: string, password?: string) => {
+    const queryStr = emailOrId.trim().toLowerCase();
+    const digitsOnly = queryStr.replace(/\D/g, '');
+    const member = members.find(
+      (m) =>
+        m.email.toLowerCase() === queryStr ||
+        m.id.toLowerCase() === queryStr ||
+        (digitsOnly.length >= 7 && m.phone.replace(/\D/g, '').endsWith(digitsOnly))
+    );
     if (!member) {
-      return { success: false, error: 'No member found with this email' };
+      return { success: false, error: 'Account not found. Contact Dream Gym admin for your credentials.' };
+    }
+    if (!member.password || !password || password !== member.password) {
+      return { success: false, error: 'Invalid password. Enter the password created by the Dream Gym admin.' };
     }
     setSelectedMember(member);
     return { success: true, member };
@@ -705,14 +715,18 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {}
   };
 
-  // Add Member
+  // Add Member (Genuine Admin-created Member Profile & Login Credentials)
   const addMember = async (memberData: Omit<Member, 'id'>): Promise<Member> => {
-    // Generate next serial member ID: GYM0349...
-    const count = members.length + 341;
-    const newId = `GYM0${count + 1}`;
+    const maxNum = members.reduce((max, m) => {
+      const match = m.id.match(/(\d+)$/);
+      const num = match ? parseInt(match[1], 10) : 1000;
+      return num > max ? num : max;
+    }, 1000);
+    const newId = `GYM${maxNum + 1}`;
     const newMember: Member = {
       ...memberData,
-      id: newId
+      id: newId,
+      totalCheckIns: memberData.totalCheckIns ?? 0,
     };
 
     setMembers(prev => [newMember, ...prev]);

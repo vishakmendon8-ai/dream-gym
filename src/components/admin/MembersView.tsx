@@ -30,6 +30,7 @@ interface MembersViewProps {
 export const MembersView: React.FC<MembersViewProps> = ({ onOpenAddMember }) => {
   const { 
     members, 
+    updateMember,
     updateMemberStatus, 
     updateMemberBiometric,
     deleteMember, 
@@ -103,7 +104,7 @@ export const MembersView: React.FC<MembersViewProps> = ({ onOpenAddMember }) => 
         </Button>
       </div>
 
-      {/* Mobile Member Cards (< md) */}
+      {/* Mobile Member Cards (always shown in Phone-Only UI) */}
       <div className="md:hidden space-y-3">
         {filteredMembers.map((member) => (
           <div
@@ -127,6 +128,39 @@ export const MembersView: React.FC<MembersViewProps> = ({ onOpenAddMember }) => 
                   <p className="text-[10px] font-mono text-[#84909A] mt-0.5">
                     {member.id} &bull; {member.planName || 'No Plan'}
                   </p>
+                  <div
+                    className="text-[10px] font-mono text-[#84909A] flex items-center gap-1.5 mt-0.5 flex-wrap"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Key className="w-2.5 h-2.5 text-[#E5B82A] shrink-0" />
+                    <span>Pass: {member.password || 'Not set'}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const updated = window.prompt(
+                          `Set new login password for ${member.name} (${member.id}):`,
+                          member.password || ''
+                        );
+                        if (updated && updated.trim().length >= 4) {
+                          updateMember(member.id, { password: updated.trim() });
+                        }
+                      }}
+                      className="text-[#252A30] font-bold underline"
+                    >
+                      Set
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(
+                          `Member ID: ${member.id}\nEmail: ${member.email}\nPassword: ${member.password || '(Not set)'}`
+                        );
+                      }}
+                      className="text-[#36A875] font-bold underline"
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
               </div>
               <Badge status={member.status} />
@@ -255,7 +289,7 @@ export const MembersView: React.FC<MembersViewProps> = ({ onOpenAddMember }) => 
                           </div>
                           <div className="text-[10px] font-mono text-graphite-muted/80 flex items-center gap-1 mt-0.5">
                             <Key className="w-2.5 h-2.5 text-yellow-active" />
-                            <span>Pass: {member.password || 'password123'}</span>
+                            <span>Pass: {member.password || 'Not set'}</span>
                           </div>
                         </div>
                       </div>

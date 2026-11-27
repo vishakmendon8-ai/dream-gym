@@ -434,14 +434,14 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* Save Bar */}
-        <div className="bg-white rounded-2xl p-4 border border-[#DCE3E8] shadow-xs flex items-center justify-between">
+        <div className="bg-white rounded-2xl p-4 border border-[#DCE3E8] shadow-xs flex flex-col gap-3">
           <div>
             {saved ? (
               <span className="text-xs font-bold text-[#36A875] flex items-center gap-1.5 animate-fade-in">
-                <CheckCircle2 className="w-4 h-4" /> Configuration saved and synchronized across all terminals!
+                <CheckCircle2 className="w-4 h-4 shrink-0" /> Configuration saved and synchronized across all terminals!
               </span>
             ) : (
-              <span className="text-xs text-[#84909A] font-medium">
+              <span className="text-xs text-[#84909A] font-medium block">
                 Changes apply immediately to all active check-in gates and reporting modules.
               </span>
             )}
@@ -449,7 +449,7 @@ export const SettingsView: React.FC = () => {
 
           <button
             type="submit"
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#FFD447] to-[#F5C62F] text-[#252A30] font-black text-xs hover:shadow-md hover:shadow-[#FFD447]/30 transition-all flex items-center gap-2"
+            className="w-full px-6 py-3 rounded-xl bg-gradient-to-r from-[#FFD447] to-[#F5C62F] text-[#252A30] font-black text-xs hover:shadow-md hover:shadow-[#FFD447]/30 transition-all flex items-center justify-center gap-2"
           >
             <Save className="w-4 h-4" />
             <span>Save Configuration</span>

@@ -30,13 +30,17 @@ export const DashboardOverview: React.FC = () => {
 
   const [trendRange, setTrendRange] = useState('Last 6 Months');
 
-  // Dynamic calculations based on real data
-  const totalMembersCount = members.length > 0 ? 342 : 0;
-  const activeMembersCount = members.filter(m => m.status === 'active').length > 0 ? 281 : 0;
-  const expiredMembersCount = members.filter(m => m.status === 'expired').length > 0 ? 37 : 0;
-  const expiringSoonCount = members.filter(m => m.status === 'expiring').length > 0 ? 24 : 0;
-  const todayAttendanceCount = 196;
-  const monthlyRevenueStr = '₹4,92,000';
+  // Genuine live calculations directly from state/Firestore records
+  const totalMembersCount = members.length;
+  const activeMembersCount = members.filter((m) => m.status === 'active').length;
+  const expiredMembersCount = members.filter((m) => m.status === 'expired').length;
+  const expiringSoonCount = members.filter((m) => m.status === 'expiring').length;
+  const todayIso = new Date().toISOString().split('T')[0];
+  const todayAttendanceCount = attendance.filter(
+    (a) => a.checkInDate === todayIso || a.timestamp.includes(todayIso)
+  ).length;
+  const totalRevenue = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const monthlyRevenueStr = `₹${totalRevenue.toLocaleString('en-IN')}`;
 
   // SVG Chart Spline points for Jul - Dec
   // 0, 50, 100, 150, 200, 250, 300
@@ -270,29 +274,30 @@ export const DashboardOverview: React.FC = () => {
 
               {/* Center Donut Label */}
               <div className="absolute text-center">
-                <span className="text-lg font-black text-[#252A30] leading-none block">342</span>
+                <span className="text-lg font-black text-[#252A30] leading-none block">{totalMembersCount}</span>
                 <span className="text-[10px] font-bold text-[#84909A] uppercase tracking-wider block mt-0.5">Members</span>
               </div>
             </div>
 
             {/* Legend Breakdown */}
             <div className="space-y-2 text-xs font-semibold">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#FFD447] shrink-0" />
-                <span className="text-[#252A30] text-[11px] font-bold">Monthly (56%)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#252A30] shrink-0" />
-                <span className="text-[#252A30] text-[11px] font-bold">Quarterly (24%)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#CBD5E1] shrink-0" />
-                <span className="text-[#252A30] text-[11px] font-bold">Half-Yearly (12%)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#FFE79A] shrink-0" />
-                <span className="text-[#252A30] text-[11px] font-bold">Yearly (8%)</span>
-              </div>
+              {[
+                { label: 'Monthly', key: 'monthly', color: 'bg-[#FFD447]' },
+                { label: 'Quarterly', key: 'quarterly', color: 'bg-[#252A30]' },
+                { label: 'Half-Yearly', key: 'half', color: 'bg-[#CBD5E1]' },
+                { label: 'Yearly', key: 'yearly', color: 'bg-[#FFE79A]' },
+              ].map((tier) => {
+                const count = members.filter((m) => (m.planName || '').toLowerCase().includes(tier.key)).length;
+                const pct = totalMembersCount > 0 ? Math.round((count / totalMembersCount) * 100) : 0;
+                return (
+                  <div key={tier.label} className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${tier.color} shrink-0`} />
+                    <span className="text-[#252A30] text-[11px] font-bold">
+                      {tier.label} ({pct}%)
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -344,12 +349,11 @@ export const DashboardOverview: React.FC = () => {
 
       {/* 3. BOTTOM ROW: RECENT REGISTRATIONS & RECENT ACCESS LOGS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        
         {/* Box 1: Recent Registrations */}
-        <div className="bg-white/95 rounded-2xl p-5 border border-[#DCE3E8]/80 shadow-xs space-y-3.5">
+        <div className="bg-white/95 rounded-2xl p-4 border border-[#DCE3E8]/80 shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-black text-[#252A30]">Recent Registrations</h2>
-            <button 
+            <button
               onClick={() => setCurrentTab('members')}
               className="text-xs font-bold text-[#E5B82A] hover:text-[#252A30] flex items-center gap-1 transition-colors"
             >
@@ -359,82 +363,56 @@ export const DashboardOverview: React.FC = () => {
           </div>
 
           <div className="space-y-2.5">
-            {/* Member 1: Rahul Sharma */}
-            <div className="p-3 rounded-xl bg-[#F5F6F2]/70 hover:bg-[#F5F6F2] border border-[#DCE3E8]/60 flex items-center justify-between transition-all">
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&auto=format&fit=crop&q=80"
-                  alt="Rahul Sharma"
-                  className="w-10 h-10 rounded-full object-cover border border-white shadow-xs"
-                />
-                <div>
-                  <p className="text-xs font-black text-[#252A30] leading-tight">Rahul Sharma</p>
-                  <p className="text-[10px] font-mono text-[#84909A] font-bold">GYM0341</p>
+            {members.length === 0 ? (
+              <div className="p-5 rounded-xl bg-[#F5F6F2] border border-dashed border-[#DCE3E8] text-center space-y-2">
+                <p className="text-xs font-bold text-[#252A30]">No members registered yet</p>
+                <p className="text-[11px] text-[#84909A]">
+                  Create your first genuine member profile and login credentials.
+                </p>
+                <button
+                  onClick={() => setIsAddMemberOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-[#FFD447] text-[#252A30] font-black text-xs shadow-xs"
+                >
+                  + Create Member
+                </button>
+              </div>
+            ) : (
+              members.slice(0, 4).map((m) => (
+                <div
+                  key={m.id}
+                  onClick={() => setCurrentTab('members')}
+                  className="p-3 rounded-xl bg-[#F5F6F2]/70 border border-[#DCE3E8]/60 flex items-center justify-between gap-2 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img
+                      src={m.avatar}
+                      alt={m.name}
+                      className="w-9 h-9 rounded-full object-cover border border-white shadow-xs shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-[#252A30] leading-tight truncate">{m.name}</p>
+                      <p className="text-[10px] font-mono text-[#84909A] font-bold">{m.id}</p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="px-2 py-0.5 rounded-full bg-[#FFF8E7] text-[#252A30] border border-[#FFD447]/50 font-extrabold text-[10px] block">
+                      {m.planName}
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#84909A] mt-0.5 block">
+                      {m.joinDate}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full bg-[#FFF8E7] text-[#252A30] border border-[#FFD447]/50 font-extrabold text-[10px]">
-                  Monthly Plan
-                </span>
-                <span className="text-[11px] font-semibold text-[#84909A] min-w-[55px] text-right">
-                  2 min ago
-                </span>
-              </div>
-            </div>
-
-            {/* Member 2: Priya Singh */}
-            <div className="p-3 rounded-xl bg-[#F5F6F2]/70 hover:bg-[#F5F6F2] border border-[#DCE3E8]/60 flex items-center justify-between transition-all">
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80"
-                  alt="Priya Singh"
-                  className="w-10 h-10 rounded-full object-cover border border-white shadow-xs"
-                />
-                <div>
-                  <p className="text-xs font-black text-[#252A30] leading-tight">Priya Singh</p>
-                  <p className="text-[10px] font-mono text-[#84909A] font-bold">GYM0342</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full bg-[#FFF8E7] text-[#252A30] border border-[#FFD447]/50 font-extrabold text-[10px]">
-                  Quarterly Plan
-                </span>
-                <span className="text-[11px] font-semibold text-[#84909A] min-w-[55px] text-right">
-                  14 min ago
-                </span>
-              </div>
-            </div>
-
-            {/* Member 3: Aman Verma */}
-            <div className="p-3 rounded-xl bg-[#F5F6F2]/70 hover:bg-[#F5F6F2] border border-[#DCE3E8]/60 flex items-center justify-between transition-all">
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80"
-                  alt="Aman Verma"
-                  className="w-10 h-10 rounded-full object-cover border border-white shadow-xs"
-                />
-                <div>
-                  <p className="text-xs font-black text-[#252A30] leading-tight">Aman Verma</p>
-                  <p className="text-[10px] font-mono text-[#84909A] font-bold">GYM0343</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full bg-[#FFF8E7] text-[#252A30] border border-[#FFD447]/50 font-extrabold text-[10px]">
-                  Yearly Plan
-                </span>
-                <span className="text-[11px] font-semibold text-[#84909A] min-w-[55px] text-right">
-                  28 min ago
-                </span>
-              </div>
-            </div>
+              ))
+            )}
           </div>
         </div>
 
         {/* Box 2: Recent Access Logs */}
-        <div className="bg-white/95 rounded-2xl p-5 border border-[#DCE3E8]/80 shadow-xs space-y-3.5">
+        <div className="bg-white/95 rounded-2xl p-4 border border-[#DCE3E8]/80 shadow-xs space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-black text-[#252A30]">Recent Access Logs</h2>
-            <button 
+            <h2 className="text-sm font-black text-[#252A30]">Recent Biometric Activity</h2>
+            <button
               onClick={() => setCurrentTab('attendance')}
               className="text-xs font-bold text-[#E5B82A] hover:text-[#252A30] flex items-center gap-1 transition-colors"
             >
@@ -444,68 +422,52 @@ export const DashboardOverview: React.FC = () => {
           </div>
 
           <div className="space-y-2.5">
-            {/* Log 1: Rahul Sharma (Granted) */}
-            <div className="p-3 rounded-xl bg-[#F5F6F2]/70 hover:bg-[#F5F6F2] border border-[#DCE3E8]/60 flex items-center justify-between transition-all">
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&auto=format&fit=crop&q=80"
-                  alt="Rahul Sharma"
-                  className="w-10 h-10 rounded-full object-cover border border-white shadow-xs"
-                />
-                <p className="text-xs font-black text-[#252A30]">Rahul Sharma</p>
+            {accessLogs.length === 0 && attendance.length === 0 ? (
+              <div className="p-5 rounded-xl bg-[#F5F6F2] border border-dashed border-[#DCE3E8] text-center">
+                <p className="text-xs font-bold text-[#252A30]">No biometric scans yet</p>
+                <p className="text-[11px] text-[#84909A] mt-0.5">
+                  Real check-ins from your Secureye terminal will appear here live.
+                </p>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full bg-[#EBF7EE] text-[#36A875] border border-[#36A875]/30 font-extrabold text-[10px]">
-                  Access Granted
-                </span>
-                <span className="text-[11px] font-semibold text-[#84909A] min-w-[55px] text-right">
-                  10:24 AM
-                </span>
-              </div>
-            </div>
-
-            {/* Log 2: Ajay Kumar (Denied) */}
-            <div className="p-3 rounded-xl bg-[#F5F6F2]/70 hover:bg-[#F5F6F2] border border-[#DCE3E8]/60 flex items-center justify-between transition-all">
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80"
-                  alt="Ajay Kumar"
-                  className="w-10 h-10 rounded-full object-cover border border-white shadow-xs"
-                />
-                <p className="text-xs font-black text-[#252A30]">Ajay Kumar</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full bg-[#FDEEEE] text-[#DC5555] border border-[#DC5555]/30 font-extrabold text-[10px]">
-                  Access Denied
-                </span>
-                <span className="text-[11px] font-semibold text-[#84909A] min-w-[55px] text-right">
-                  10:20 AM
-                </span>
-              </div>
-            </div>
-
-            {/* Log 3: Neha Patel (Granted) */}
-            <div className="p-3 rounded-xl bg-[#F5F6F2]/70 hover:bg-[#F5F6F2] border border-[#DCE3E8]/60 flex items-center justify-between transition-all">
-              <div className="flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&auto=format&fit=crop&q=80"
-                  alt="Neha Patel"
-                  className="w-10 h-10 rounded-full object-cover border border-white shadow-xs"
-                />
-                <p className="text-xs font-black text-[#252A30]">Neha Patel</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-full bg-[#EBF7EE] text-[#36A875] border border-[#36A875]/30 font-extrabold text-[10px]">
-                  Access Granted
-                </span>
-                <span className="text-[11px] font-semibold text-[#84909A] min-w-[55px] text-right">
-                  10:18 AM
-                </span>
-              </div>
-            </div>
+            ) : (
+              (attendance.length > 0 ? attendance.slice(0, 4) : accessLogs.slice(0, 4)).map((item: any) => {
+                const isGranted = item.status === 'granted';
+                return (
+                  <div
+                    key={item.id}
+                    className="p-3 rounded-xl bg-[#F5F6F2]/70 border border-[#DCE3E8]/60 flex items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={item.avatar}
+                        alt={item.memberName}
+                        className="w-9 h-9 rounded-full object-cover border border-white shadow-xs shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-black text-[#252A30] truncate">{item.memberName}</p>
+                        <p className="text-[10px] font-mono text-[#84909A] truncate">{item.memberId}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span
+                        className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] inline-block ${
+                          isGranted
+                            ? 'bg-[#EBF7EE] text-[#36A875] border border-[#36A875]/30'
+                            : 'bg-[#FDEEEE] text-[#DC5555] border border-[#DC5555]/30'
+                        }`}
+                      >
+                        {isGranted ? 'Access Granted' : 'Access Denied'}
+                      </span>
+                      <span className="text-[10px] font-semibold text-[#84909A] block mt-0.5">
+                        {item.checkInTime || item.time || item.timestamp}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
-
       </div>
 
     </div>

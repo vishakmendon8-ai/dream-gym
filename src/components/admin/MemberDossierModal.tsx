@@ -97,7 +97,7 @@ export const MemberDossierModal: React.FC<MemberDossierModalProps> = ({ member, 
     setEditEmail(member.email || '');
     setEditPhone(member.phone || '');
     setEditEmergency(member.emergencyContact || '');
-    setEditPassword(member.password || 'password123');
+    setEditPassword(member.password || '');
     setProfileSavedToast(false);
   }, [member?.id, isOpen]);
 

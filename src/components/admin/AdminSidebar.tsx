@@ -139,30 +139,26 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   );
 
   return (
-    <>
-      {/* Desktop Fixed Sidebar (lg and up) */}
-      <div className="hidden lg:flex h-full shrink-0">{sidebarContent(false)}</div>
-
-      {/* Mobile Slide-Over Navigation Drawer (< lg) */}
+    <div
+      className={`fixed inset-0 z-50 flex justify-center transition-opacity duration-200 ${
+        mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      }`}
+    >
+      {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-50 lg:hidden transition-opacity duration-200 ${
-          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        {/* Backdrop */}
+        onClick={onCloseMobile}
+        className="fixed inset-0 bg-black/55 backdrop-blur-xs"
+      />
+      {/* Drawer Container aligned with 430px phone shell */}
+      <div className="relative z-10 w-full max-w-[430px] h-full flex pointer-events-none">
         <div
-          onClick={onCloseMobile}
-          className="absolute inset-0 bg-black/55 backdrop-blur-xs"
-        />
-        {/* Drawer Panel */}
-        <div
-          className={`relative h-full w-fit transform transition-transform duration-200 ease-out ${
+          className={`pointer-events-auto relative h-full w-fit transform transition-transform duration-200 ease-out ${
             mobileOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
           {sidebarContent(true)}
         </div>
       </div>
-    </>
+    </div>
   );
 };

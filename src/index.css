@@ -782,3 +782,64 @@ a,
   opacity: 0;
   animation: splash-fire-glow-pulse 1.3s ease-in-out 560ms infinite;
 }
+
+/* ============================================================
+   PHONE-ONLY ADMIN UI ENFORCEMENT (430px Mobile App Viewport)
+   Ensures desktop media queries never break mobile cards or grids
+   inside the 430px phone frame on wide screens.
+   ============================================================ */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.phone-only-shell main .md\:hidden {
+  display: block !important;
+}
+
+.phone-only-shell main .hidden.md\:block {
+  display: none !important;
+}
+
+.phone-only-shell main .lg\:grid-cols-12,
+.phone-only-shell main .lg\:grid-cols-4,
+.phone-only-shell main .lg\:grid-cols-3,
+.phone-only-shell main .lg\:grid-cols-2,
+.phone-only-shell main .md\:grid-cols-4,
+.phone-only-shell main .md\:grid-cols-3,
+.phone-only-shell main .md\:grid-cols-2,
+.phone-only-shell main .sm\:grid-cols-3,
+.phone-only-shell main .sm\:grid-cols-12 {
+  grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+}
+
+.phone-only-shell main .lg\:col-span-3,
+.phone-only-shell main .lg\:col-span-4,
+.phone-only-shell main .lg\:col-span-5,
+.phone-only-shell main .lg\:col-span-6,
+.phone-only-shell main .lg\:col-span-7,
+.phone-only-shell main .lg\:col-span-8,
+.phone-only-shell main .sm\:col-span-2,
+.phone-only-shell main .sm\:col-span-5 {
+  grid-column: span 1 / span 1 !important;
+}
+
+.phone-only-shell main .xl\:grid-cols-6,
+.phone-only-shell main .grid-cols-2.sm\:grid-cols-3 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.phone-only-shell main .md\:flex-row,
+.phone-only-shell main .sm\:flex-row {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+
+.phone-only-shell main .sm\:border-l {
+  border-left-width: 0 !important;
+  padding-left: 0 !important;
+}
+
