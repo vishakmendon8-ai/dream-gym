@@ -44,7 +44,6 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({ onOpenMobileMenu }) => {
     'subscriptions': { title: 'Subscriptions', subtitle: 'Track active memberships, renewals & expiries' },
     'payments': { title: 'Payments', subtitle: 'Razorpay billing transactions & revenue records' },
     'biometric': { title: 'Biometric', subtitle: 'Manage member fingerprint IDs & live attendance scans' },
-    'access-monitor': { title: 'Access Monitor', subtitle: 'Real-time entrance verification & live check-in monitor' },
     'attendance': { title: 'Attendance', subtitle: 'Live biometric check-in logs & visitor history' },
     'reports': { title: 'Reports', subtitle: 'Export revenue, membership & retention metrics' },
     'settings': { title: 'Settings', subtitle: 'Facility preferences & turnstile parameters' },

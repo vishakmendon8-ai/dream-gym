@@ -11,7 +11,6 @@ import {
   ArrowDownRight, 
   UserPlus, 
   Fingerprint, 
-  MonitorPlay, 
   CalendarPlus, 
   ChevronRight, 
   ChevronDown,
@@ -327,19 +326,7 @@ export const DashboardOverview: React.FC = () => {
               <ArrowRight className="w-4 h-4 text-[#84909A] group-hover:translate-x-1 group-hover:text-[#252A30] transition-all" />
             </button>
 
-            {/* Action 3: Live Access Monitor */}
-            <button
-              onClick={() => setCurrentTab('access-monitor')}
-              className="w-full p-3 rounded-xl bg-white hover:bg-[#F5F6F2] border border-[#DCE3E8] text-[#252A30] font-bold text-xs flex items-center justify-between transition-all btn-jelly-secondary group"
-            >
-              <div className="flex items-center gap-2.5">
-                <MonitorPlay className="w-4 h-4 text-[#84909A] group-hover:text-[#252A30]" />
-                <span>Live Access Monitor</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-[#84909A] group-hover:translate-x-1 group-hover:text-[#252A30] transition-all" />
-            </button>
-
-            {/* Action 4: Record Attendance */}
+            {/* Action 3: Record Attendance */}
             <button
               onClick={() => setCurrentTab('attendance')}
               className="w-full p-3 rounded-xl bg-white hover:bg-[#F5F6F2] border border-[#DCE3E8] text-[#252A30] font-bold text-xs flex items-center justify-between transition-all btn-jelly-secondary group"
@@ -448,7 +435,7 @@ export const DashboardOverview: React.FC = () => {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-black text-[#252A30]">Recent Access Logs</h2>
             <button 
-              onClick={() => setCurrentTab('access-monitor')}
+              onClick={() => setCurrentTab('attendance')}
               className="text-xs font-bold text-[#E5B82A] hover:text-[#252A30] flex items-center gap-1 transition-colors"
             >
               <span>View All</span>

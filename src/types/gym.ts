@@ -145,7 +145,6 @@ export type AdminTab =
   | 'payments'
   | 'finances'
   | 'biometric'
-  | 'access-monitor'
   | 'attendance'
   | 'reports'
   | 'settings';

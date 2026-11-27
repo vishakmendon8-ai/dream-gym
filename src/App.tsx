@@ -8,7 +8,6 @@ import { PlansView } from './components/admin/PlansView';
 import { SubscriptionsView } from './components/admin/SubscriptionsView';
 import { PaymentsView } from './components/admin/PaymentsView';
 import { BiometricView } from './components/admin/BiometricView';
-import { AccessMonitorView } from './components/admin/AccessMonitorView';
 import { AttendanceView } from './components/admin/AttendanceView';
 import { ReportsView } from './components/admin/ReportsView';
 import { SettingsView } from './components/admin/SettingsView';
@@ -22,7 +21,7 @@ import {
   LayoutDashboard,
   Users,
   Fingerprint,
-  MonitorPlay,
+  CalendarDays,
   Menu,
 } from 'lucide-react';
 
@@ -67,8 +66,6 @@ const MainLayout: React.FC = () => {
         return <PaymentsView />;
       case 'biometric':
         return <BiometricView />;
-      case 'access-monitor':
-        return <AccessMonitorView />;
       case 'attendance':
         return <AttendanceView />;
       case 'reports':
@@ -85,7 +82,7 @@ const MainLayout: React.FC = () => {
     { id: 'dashboard', label: 'Home', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'members', label: 'Members', icon: <Users className="w-5 h-5" /> },
     { id: 'biometric', label: 'Biometric', icon: <Fingerprint className="w-5 h-5" /> },
-    { id: 'access-monitor', label: 'Monitor', icon: <MonitorPlay className="w-5 h-5" /> },
+    { id: 'attendance', label: 'Attendance', icon: <CalendarDays className="w-5 h-5" /> },
   ];
 
   return (
