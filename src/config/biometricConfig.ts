@@ -22,12 +22,40 @@ function deriveWssUrl(httpUrl: string): string {
   return `${wsBase}/biometric`;
 }
 
+export function getBiometricBackendUrl(): string {
+  if (typeof window === 'undefined') {
+    return (import.meta.env.VITE_BIOMETRIC_WS_BACKEND_URL || 'https://dream-gym-1.onrender.com').trim().replace(/\/+$/, '');
+  }
+
+  const saved = localStorage.getItem('dreamgym_biometric_server_url');
+  if (saved) return saved.trim().replace(/\/+$/, '');
+
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://localhost:8080';
+  }
+  if (host.startsWith('192.168.')) {
+    return `http://${host}:8080`;
+  }
+
+  return (import.meta.env.VITE_BIOMETRIC_WS_BACKEND_URL || 'https://dream-gym-1.onrender.com').trim().replace(/\/+$/, '');
+}
+
+export function setBiometricBackendUrl(url: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('dreamgym_biometric_server_url', url.trim().replace(/\/+$/, ''));
+}
+
 export const BIOMETRIC_CONFIG = {
   /** Pre-configured cloud biometric backend URL (zero client setup required). */
-  serverUrl: rawServerUrl,
+  get serverUrl() {
+    return getBiometricBackendUrl();
+  },
 
   /** Derived WSS URL for the physical Secureye terminal (/biometric). */
-  wsUrl: deriveWssUrl(rawServerUrl),
+  get wsUrl() {
+    return deriveWssUrl(getBiometricBackendUrl());
+  },
 
   /**
    * Optional deploy-time API secret (set VITE_BIOMETRIC_API_SECRET in Vercel /
