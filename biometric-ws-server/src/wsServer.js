@@ -112,30 +112,34 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
   }, config.heartbeatIntervalMs);
   if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
 
-  // Route HTTP Upgrade: /ws/admin -> Admin Live Stream, /biometric (or / when device only takes IP+Port) -> Secureye
-  httpServer.on('upgrade', (req, socket, head) => {
-    const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    const pathname = urlObj.pathname.replace(/\/+$/, '') || '/';
+  // Route HTTP Upgrade: /ws/admin -> Admin Live Stream, all other paths -> Secureye Terminal
+  function bindHttpUpgrade(server) {
+    server.on('upgrade', (req, socket, head) => {
+      const urlObj = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+      const pathname = urlObj.pathname.replace(/\/+$/, '') || '/';
 
-    if (pathname === '/ws/admin') {
-      if (config.biometricApiSecret) {
-        const token = urlObj.searchParams.get('token') || '';
-        if (token !== config.biometricApiSecret) {
-          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-          socket.destroy();
-          return;
+      if (pathname === '/ws/admin') {
+        if (config.biometricApiSecret) {
+          const token = urlObj.searchParams.get('token') || '';
+          if (token !== config.biometricApiSecret) {
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+          }
         }
+        adminWss.handleUpgrade(req, socket, head, (ws) => {
+          adminWss.emit('connection', ws, req);
+        });
+        return;
       }
-      adminWss.handleUpgrade(req, socket, head, (ws) => {
-        adminWss.emit('connection', ws, req);
-      });
-      return;
-    }
 
-    biometricWss.handleUpgrade(req, socket, head, (ws) => {
-      biometricWss.emit('connection', ws, req);
+      biometricWss.handleUpgrade(req, socket, head, (ws) => {
+        biometricWss.emit('connection', ws, req);
+      });
     });
-  });
+  }
+
+  bindHttpUpgrade(httpServer);
 
   // --------------------------------------------------------------------------
   // Admin Live Stream (/ws/admin)
@@ -210,16 +214,18 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
     });
     broadcastAdmin('diagnostic', diag);
 
-    // Update persistent status if device identified via query string
-    if (querySn) {
-      const updated = await store.updateDeviceState(querySn, {
-        wsConnectionStatus: 'connected',
-        remoteIp,
-        connectedAt: nowIso,
-        lastHeartbeatAt: nowIso,
-      });
-      broadcastAdmin('device_status', updated);
-    }
+    // Update persistent status immediately upon WebSocket connection
+    const targetSn = querySn || config.defaultDevice.serialNumber;
+    session.deviceId = targetSn;
+    activeDeviceSessions.set(targetSn, session);
+
+    const updated = await store.updateDeviceState(targetSn, {
+      wsConnectionStatus: 'connected',
+      remoteIp,
+      connectedAt: nowIso,
+      lastHeartbeatAt: nowIso,
+    });
+    broadcastAdmin('device_status', updated);
 
     // Track WebSocket control-frame pongs as live heartbeats
     ws.on('pong', async () => {
@@ -328,7 +334,7 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
               lastDenialReason = result.reason || result.record?.reason || 'Subscription Expired';
               if (evt.biometricUserId) deniedBioIds.push(evt.biometricUserId);
             }
-            if (!result.duplicate && result.record) {
+            if (result.record) {
               broadcastAdmin('attendance_event', result.record);
               broadcastAdmin('device_status', store.getDevice(effectiveDeviceId));
               if (pushService) {
@@ -350,17 +356,25 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
         }
       }
 
-      // Send protocol acknowledgment ONLY for recognized standard WS JSON commands
+      // Send protocol acknowledgment for recognized standard WS JSON / XML commands
       if (inspection.suggestedReply && ws.readyState === WebSocket.OPEN) {
-        const replyPayload = { ...inspection.suggestedReply };
-        if (inspection.category === 'attendance_event') {
-          replyPayload.access = allGranted ? 1 : 0;
-          replyPayload.message = allGranted
-            ? 'Access Granted'
-            : (lastDenialReason || 'Subscription Expired').slice(0, 60);
+        let replyStr;
+        let isXml = false;
+
+        if (typeof inspection.suggestedReply === 'string') {
+          replyStr = inspection.suggestedReply;
+          isXml = true;
+        } else {
+          const replyPayload = { ...inspection.suggestedReply };
+          if (inspection.category === 'attendance_event') {
+            replyPayload.access = allGranted ? 1 : 0;
+            replyPayload.message = allGranted
+              ? 'Access Granted'
+              : (lastDenialReason || 'Subscription Expired').slice(0, 60);
+          }
+          replyStr = JSON.stringify(replyPayload);
         }
 
-        const replyStr = JSON.stringify(replyPayload);
         ws.send(replyStr);
         await store.logDiagnostic({
           event: 'ws_reply_sent',
@@ -368,9 +382,9 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
           deviceId: session.deviceId || null,
           remoteIp,
           path: reqUrl,
-          messageType: 'json',
+          messageType: isXml ? 'xml' : 'json',
           rawText: replyStr,
-          rawPreview: `SERVER REPLY (${allGranted ? 'ALLOW' : 'DECLINE'}) -> ${replyStr}`,
+          rawPreview: `SERVER REPLY (${allGranted ? 'ALLOW' : 'DECLINE'}) -> ${replyStr.slice(0, 200)}`,
         });
 
         // If member's subscription is expired/denied, ALSO send hardware disable command (`enableuser enflag: 0`)
@@ -427,17 +441,16 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
       );
 
       // Only mark disconnected if this socket is still the active session for that device
-      const currentKey = session.deviceId || connectionId;
+      const currentKey = session.deviceId || config.defaultDevice.serialNumber;
       const currentEntry = activeDeviceSessions.get(currentKey);
-      if (currentEntry && currentEntry.ws === ws) {
+      if (!currentEntry || currentEntry.ws === ws) {
         activeDeviceSessions.delete(currentKey);
-        if (session.deviceId) {
-          const updated = await store.updateDeviceState(session.deviceId, {
-            wsConnectionStatus: 'disconnected',
-            disconnectedAt: closeIso,
-          });
-          broadcastAdmin('device_status', updated);
-        }
+        activeDeviceSessions.delete(connectionId);
+        const updated = await store.updateDeviceState(currentKey, {
+          wsConnectionStatus: 'disconnected',
+          disconnectedAt: closeIso,
+        });
+        broadcastAdmin('device_status', updated);
       }
 
       const diagClose = await store.logDiagnostic({
@@ -622,5 +635,6 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
     requestAttendanceSync,
     enforceAllSubscriptionsOnDevice,
     broadcastAdmin,
+    bindHttpUpgrade,
   };
 }
