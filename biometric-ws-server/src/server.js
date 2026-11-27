@@ -288,9 +288,11 @@ async function start() {
     console.log('-------------------------------------------------------------------');
   });
 
-  // Secondary Alternate Port 8000 Listener (Extra backup WebSocket URL)
+  const isCloudHost = Boolean(process.env.RENDER || config.isCloudRun || process.env.K_SERVICE);
+
+  // Secondary Alternate Port 8000 Listener (Extra backup WebSocket URL for local machines only)
   const secondaryPort = 8000;
-  if (!config.isCloudRun) {
+  if (!isCloudHost) {
     try {
       const secondaryServer = http.createServer(app);
       if (typeof wsController.bindHttpUpgrade === 'function') {
@@ -310,7 +312,7 @@ async function start() {
 
   // Dedicated TCP LogClient Listener (Port 5005) - Realand / Secureye Log Client Stream
   const tcpLogPort = 5005;
-  if (!config.isCloudRun) {
+  if (!isCloudHost) {
     try {
       const tcpServer = net.createServer((socket) => {
         const clientIp = socket.remoteAddress?.replace(/^.*:/, '') || 'unknown';
