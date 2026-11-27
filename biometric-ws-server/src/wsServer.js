@@ -198,6 +198,20 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
       console.log(`[WS /biometric] Device ${querySn} reconnected; closing previous socket ${prev.connectionId}.`);
       try { prev.ws.close(1000, 'Replaced by newer device connection'); } catch {}
     }
+
+    const userAgent = String(req.headers['user-agent'] || '');
+    const origin = String(req.headers['origin'] || '');
+    const isBrowserProbe = Boolean(origin || userAgent.includes('Mozilla') || userAgent.includes('Chrome') || userAgent.includes('Safari') || userAgent.includes('Edge'));
+    session.isBrowserProbe = isBrowserProbe;
+
+    if (isBrowserProbe) {
+      console.log(`[WS /biometric] Browser probe detected from ${remoteIp} (Origin: ${origin || 'none'}); keeping physical machine state unchanged.`);
+      ws.on('close', () => {
+        console.log(`[WS /biometric] Browser probe socket closed from ${remoteIp}.`);
+      });
+      return;
+    }
+
     activeDeviceSessions.set(sessionKey, session);
 
     console.log(`[WS /biometric] CONNECTED | conn=${connectionId} | IP=${remoteIp} | querySN=${querySn || 'pending'} | path=${reqUrl}`);
