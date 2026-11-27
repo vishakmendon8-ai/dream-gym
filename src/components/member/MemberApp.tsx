@@ -193,19 +193,56 @@ export const MemberApp: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [recoverySuccess, setRecoverySuccess] = useState(false);
 
-  // Push Notification & Lock-Screen Alerts State
+  // Background Push Subscription State (silent — zero UI mention)
   const [pushPermission, setPushPermission] = useState<NotificationPermission>(() => {
     return NotificationService.getPermission();
   });
-  const [testCountdown, setTestCountdown] = useState<number | null>(null);
-  const [dismissPushBanner, setDismissPushBanner] = useState(false);
 
-  // Auto-scan on load: If member's membership is expiring soon (<= 7 days), dispatch background push alert
+  // Register Service Worker & sync encrypted VAPID PushSubscription silently
+  useEffect(() => {
+    let active = true;
+    const syncPush = async () => {
+      await NotificationService.registerServiceWorker();
+      if (!active) return;
+      const perm = NotificationService.getPermission();
+      setPushPermission(perm);
+      if (perm === 'granted' && currentMember) {
+        await NotificationService.subscribeMemberPush(currentMember);
+      }
+    };
+    syncPush().catch(() => {});
+
+    // On first user tap when permission is still 'default', prompt native OS notification permission once
+    const handleFirstInteraction = async () => {
+      if (NotificationService.getPermission() === 'default') {
+        const perm = await NotificationService.requestPermission();
+        if (!active) return;
+        setPushPermission(perm);
+        if (perm === 'granted' && currentMember) {
+          await NotificationService.subscribeMemberPush(currentMember);
+        }
+      }
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+    };
+
+    if (typeof window !== 'undefined' && NotificationService.getPermission() === 'default') {
+      window.addEventListener('pointerdown', handleFirstInteraction, { once: true });
+    }
+
+    return () => {
+      active = false;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pointerdown', handleFirstInteraction);
+      }
+    };
+  }, [currentMember.id, currentMember.biometricId, pushPermission]);
+
+  // Auto-dispatch expiry notification if membership is expiring soon (<= 7 days)
   useEffect(() => {
     if (currentMember && currentMember.daysLeft <= 7) {
       NotificationService.dispatchExpiryAlert(currentMember).catch(() => {});
     }
-  }, [currentMember]);
+  }, [currentMember.id, currentMember.daysLeft]);
 
   // ----------------------------------------------------
   // Form States: Register (Screen 3)
@@ -1820,40 +1857,6 @@ export const MemberApp: React.FC = () => {
           </div>
         </div>
 
-        {/* Lock-Screen & App-Closed Notification Permission Prompt */}
-        {pushPermission !== 'granted' && !dismissPushBanner && (
-          <div className="bg-gradient-to-r from-[#252A30] to-[#1E2328] text-white rounded-2xl p-3.5 border border-yellow-sunshine/30 shadow-xs flex items-center justify-between gap-3 animate-fade-in">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-yellow-sunshine/20 text-yellow-sunshine flex items-center justify-center shrink-0">
-                <Bell className="w-4 h-4 animate-bounce" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="text-xs font-black text-white leading-tight">Enable Lock-Screen Alerts</h4>
-                <p className="text-[10px] text-cloud-grey/80 truncate">
-                  Get expiry notices even when your app is closed or phone is locked.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={async () => {
-                  const perm = await NotificationService.requestPermission();
-                  setPushPermission(perm);
-                }}
-                className="px-2.5 py-1 rounded-lg bg-yellow-sunshine text-graphite font-black text-[10px] shadow-xs hover:bg-yellow-hover transition-all"
-              >
-                Enable
-              </button>
-              <button
-                onClick={() => setDismissPushBanner(true)}
-                className="p-1 text-cloud-grey/60 hover:text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Urgent Expiry Banner (if active/expiring membership is ending in <= 7 days) */}
         {currentMember.planId && currentMember.status !== 'pending' && currentMember.daysLeft <= 7 && (
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-3.5 shadow-xs flex items-center justify-between gap-3 animate-fade-in">
@@ -2435,70 +2438,6 @@ export const MemberApp: React.FC = () => {
             ))}
           </div>
 
-          {/* Background & Lock-Screen Alerts Card (Delivers even when app is closed / phone turned off) */}
-          <div className="bg-white rounded-3xl p-4 border border-cloud-border shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-yellow-soft flex items-center justify-center text-graphite">
-                  <Bell className="w-4 h-4 text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black text-graphite">Lock-Screen & Offline Alerts</h3>
-                  <p className="text-[10px] text-graphite-muted">Service Worker + Cellular SMS Queue</p>
-                </div>
-              </div>
-
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                pushPermission === 'granted' 
-                  ? 'bg-status-success/15 text-status-success border-status-success/30' 
-                  : 'bg-yellow-soft text-amber-700 border-yellow-sunshine/40'
-              }`}>
-                {pushPermission === 'granted' ? '● System Push Active' : '● Setup Required'}
-              </span>
-            </div>
-
-            <p className="text-[11px] text-graphite-muted leading-relaxed">
-              When your membership is ending, alerts are pushed directly to your lock screen. If your phone is powered off, the notification is queued in telecommunication carrier servers and delivered the instant your device turns back on.
-            </p>
-
-            {/* Test Push Button with 4s Countdown */}
-            <div className="pt-1 border-t border-cloud-border/60 flex items-center justify-between">
-              <span className="text-[10px] text-graphite font-semibold">
-                {testCountdown !== null 
-                  ? `⏳ Close/Lock phone now! Firing in ${testCountdown}s...` 
-                  : 'Verify on your device:'}
-              </span>
-
-              <button
-                onClick={async () => {
-                  if (pushPermission !== 'granted') {
-                    const perm = await NotificationService.requestPermission();
-                    setPushPermission(perm);
-                    if (perm !== 'granted') return;
-                  }
-
-                  let count = 4;
-                  setTestCountdown(count);
-                  const timer = setInterval(() => {
-                    count--;
-                    if (count > 0) {
-                      setTestCountdown(count);
-                    } else {
-                      clearInterval(timer);
-                      setTestCountdown(null);
-                      NotificationService.dispatchExpiryAlert(currentMember);
-                    }
-                  }, 1000);
-                }}
-                disabled={testCountdown !== null}
-                className="px-3 py-1.5 rounded-xl bg-yellow-sunshine hover:bg-yellow-hover text-graphite font-black text-[11px] shadow-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>{testCountdown !== null ? `Testing (${testCountdown}s)` : 'Test Lock-Screen Alert'}</span>
-              </button>
-            </div>
-          </div>
-
           {/* Notifications List */}
           <div className="space-y-3">
             {filteredNotifs.map((item) => (
@@ -2740,13 +2679,11 @@ export const MemberApp: React.FC = () => {
                 <Bell className="w-4 h-4 text-amber-600" />
               </div>
               <div>
-                <span className="text-xs font-bold text-graphite block">Lock-Screen & Expiry Alerts</span>
-                <span className="text-[10px] text-graphite-muted font-medium">Delivers even if phone is off or app closed</span>
+                <span className="text-xs font-bold text-graphite block">Notifications</span>
+                <span className="text-[10px] text-graphite-muted font-medium">Membership &amp; gym updates</span>
               </div>
             </div>
-            <span className="px-2 py-0.5 rounded-full bg-status-success/15 text-status-success text-[10px] font-bold">
-              Active
-            </span>
+            <ChevronRight className="w-4 h-4 text-graphite-muted" />
           </button>
 
           <button

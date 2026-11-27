@@ -24,11 +24,13 @@ import cors from 'cors';
 import { config } from './config.js';
 import { BiometricFirebaseStore } from './firebaseStore.js';
 import { attachBiometricWebSocketServer } from './wsServer.js';
+import { MemberPushService } from './pushService.js';
 
 const app = express();
 const httpServer = http.createServer(app);
 const store = new BiometricFirebaseStore();
-const wsController = attachBiometricWebSocketServer({ httpServer, store });
+const pushService = new MemberPushService(store);
+const wsController = attachBiometricWebSocketServer({ httpServer, store, pushService });
 
 app.set('trust proxy', true);
 app.use(cors());
@@ -162,6 +164,7 @@ app.post('/api/biometric/members-sync', requireAdminSecret, async (req, res) => 
   const deviceId = req.body?.deviceId || config.defaultDevice.serialNumber;
   const summary = store.syncMembersDirectory(membersList);
   const enforcement = await wsController.enforceAllSubscriptionsOnDevice(deviceId);
+  pushService.notifyExpiringMembers(membersList).catch(() => {});
   return res.status(200).json({
     ok: true,
     synced: summary,
@@ -172,6 +175,44 @@ app.post('/api/biometric/members-sync', requireAdminSecret, async (req, res) => 
 app.post('/api/biometric/enforce-subscriptions', requireAdminSecret, async (req, res) => {
   const deviceId = req.body?.deviceId || config.defaultDevice.serialNumber;
   const result = await wsController.enforceAllSubscriptionsOnDevice(deviceId);
+  return res.status(200).json(result);
+});
+
+// ============================================================================
+// Web Push Notification Endpoints for Dream Gym Member App
+// ============================================================================
+app.get('/api/push/vapid-public-key', (_req, res) => {
+  const publicKey = pushService.getPublicKey();
+  if (!publicKey) {
+    return res.status(503).json({ ok: false, error: 'Push service initializing' });
+  }
+  return res.status(200).json({ ok: true, publicKey });
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  const { memberId, memberName, biometricId, subscription } = req.body || {};
+  const result = await pushService.saveSubscription({
+    memberId,
+    memberName,
+    biometricId,
+    subscription,
+  });
+  if (!result.ok) {
+    return res.status(400).json(result);
+  }
+  return res.status(200).json(result);
+});
+
+app.post('/api/push/send', requireAdminSecret, async (req, res) => {
+  const { targetMemberId, biometricId, title, body, url, tag } = req.body || {};
+  const result = await pushService.sendPush({
+    targetMemberId: targetMemberId || 'all',
+    biometricId: biometricId || null,
+    title,
+    body,
+    url: url || '/member',
+    tag: tag || 'dreamgym-alert',
+  });
   return res.status(200).json(result);
 });
 
@@ -191,6 +232,7 @@ function getLocalIpv4List() {
 
 async function start() {
   await store.init();
+  await pushService.init();
 
   httpServer.listen(config.port, config.host, () => {
     const lanIps = getLocalIpv4List();

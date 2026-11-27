@@ -1,9 +1,6 @@
-// Dream Gym Service Worker for Background & Lock-Screen Notifications
-// Allows alerts even when app is closed or phone is locked
+// Dream Gym Service Worker
 
-const CACHE_NAME = 'dreamgym-sw-v1';
-
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -11,61 +8,51 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// 1. Listen for background push events from FCM / Web Push
+// Receive encrypted Web Push messages from backend push service
 self.addEventListener('push', (event) => {
   let data = {};
   try {
     data = event.data ? event.data.json() : {};
-  } catch (e) {
+  } catch {
     data = {
-      title: 'Dream Gym • Membership Alert',
-      body: event.data ? event.data.text() : 'Your gym membership is expiring soon! Renew now to prevent turnstile lockout.'
+      title: 'Dream Gym',
+      body: event.data ? event.data.text() : 'You have a new update from Dream Gym.',
     };
   }
 
-  const title = data.title || '⚠️ Dream Gym Membership Expiring Soon';
+  const title = data.title || 'Dream Gym';
   const options = {
-    body: data.body || 'Your membership is about to expire. Renew now to maintain uninterrupted biometric gate access.',
+    body: data.body || 'You have a new update from Dream Gym.',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    vibrate: [250, 100, 250, 100, 250],
-    tag: data.tag || 'dreamgym-membership-expiry',
+    vibrate: [200, 100, 200],
+    tag: data.tag || 'dreamgym-notification',
     renotify: true,
     requireInteraction: true,
     data: {
-      url: data.url || '/?view=member&screen=membership-details',
-      timestamp: Date.now()
+      url: data.url || '/member',
+      timestamp: data.timestamp || Date.now(),
     },
-    actions: [
-      { action: 'renew', title: '⚡ Renew Membership' },
-      { action: 'dismiss', title: 'Dismiss' }
-    ]
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// 2. Handle notification clicks (deep link to renewal screen)
+// Open or focus Member App when notification is tapped
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  if (event.action === 'dismiss') return;
-
-  const targetUrl = (event.notification.data && event.notification.data.url) 
-    ? event.notification.data.url 
-    : '/?view=member&screen=membership-details';
+  const targetUrl =
+    (event.notification.data && event.notification.data.url) || '/member';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If a window is already open, focus it and navigate
       for (const client of clientList) {
         if ('focus' in client) {
           client.focus();
-          client.postMessage({ type: 'NAVIGATE', screen: 'renewal' });
+          client.postMessage({ type: 'NAVIGATE', url: targetUrl });
           return;
         }
       }
-      // If no window is open, open a new one
       if (self.clients.openWindow) {
         return self.clients.openWindow(targetUrl);
       }
@@ -73,34 +60,19 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// 3. Listen for internal trigger messages from App / Background Scheduler
 self.addEventListener('message', (event) => {
   if (!event.data) return;
-
-  if (event.data.type === 'SHOW_EXPIRY_NOTIFICATION') {
-    const { memberName, daysLeft, planName } = event.data;
-    const title = daysLeft <= 1 
-      ? `🚨 Urgent: Membership Expires ${daysLeft === 0 ? 'Today' : 'Tomorrow'}!`
-      : `⚠️ Dream Gym Reminder: ${daysLeft} Days Left`;
-      
-    const body = `Hi ${memberName || 'Member'}, your ${planName || 'Gym'} plan expires in ${daysLeft} days. Renew now to prevent biometric turnstile lock.`;
-
-    self.registration.showNotification(title, {
-      body,
+  if (event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, body, url, tag } = event.data;
+    self.registration.showNotification(title || 'Dream Gym', {
+      body: body || '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
-      vibrate: [300, 150, 300, 150, 400],
-      tag: 'dreamgym-expiry-' + (event.data.memberId || 'alert'),
+      vibrate: [200, 100, 200],
+      tag: tag || 'dreamgym-notification',
       renotify: true,
       requireInteraction: true,
-      data: {
-        url: '/?view=member&screen=membership-details',
-        timestamp: Date.now()
-      },
-      actions: [
-        { action: 'renew', title: '⚡ Renew Now' },
-        { action: 'dismiss', title: 'Dismiss' }
-      ]
+      data: { url: url || '/member', timestamp: Date.now() },
     });
   }
 });

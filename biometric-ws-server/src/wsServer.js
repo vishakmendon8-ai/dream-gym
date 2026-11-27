@@ -32,7 +32,7 @@ function sanitizeHeaders(headers) {
   return out;
 }
 
-export function attachBiometricWebSocketServer({ httpServer, store }) {
+export function attachBiometricWebSocketServer({ httpServer, store, pushService = null }) {
   const biometricWss = new WebSocketServer({ noServer: true });
   const adminWss = new WebSocketServer({ noServer: true });
 
@@ -331,6 +331,20 @@ export function attachBiometricWebSocketServer({ httpServer, store }) {
             if (!result.duplicate && result.record) {
               broadcastAdmin('attendance_event', result.record);
               broadcastAdmin('device_status', store.getDevice(effectiveDeviceId));
+              if (pushService) {
+                pushService
+                  .sendPush({
+                    targetMemberId: result.record.memberId,
+                    biometricId: evt.biometricUserId,
+                    title: result.granted ? 'Dream Gym Check-In' : 'Dream Gym Entry Declined',
+                    body: result.granted
+                      ? `Welcome, ${result.record.memberName}! Check-in recorded at ${result.record.checkInTime}.`
+                      : result.record.reason || 'Your gym membership has expired.',
+                    url: result.granted ? '/member?screen=attendance' : '/member?screen=membership-details',
+                    tag: `dreamgym-scan-${result.record.memberId}`,
+                  })
+                  .catch(() => {});
+              }
             }
           }
         }

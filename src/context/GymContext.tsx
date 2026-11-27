@@ -40,6 +40,7 @@ import {
   syncMembersToBiometricBackend,
 } from '../services/biometricCloudClient';
 import { BIOMETRIC_CONFIG } from '../config/biometricConfig';
+import { NotificationService } from '../services/notificationService';
 
 function normalizeBiometricId(val?: string | null): string {
   const s = String(val || '').trim().toLowerCase();
@@ -887,6 +888,21 @@ export const GymProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isRead: false
     };
     setNotifications(prev => [newNotif, ...prev]);
+
+    NotificationService.sendServerPush({
+      targetMemberId: memberId,
+      biometricId: member?.biometricId,
+      title:
+        options.status === 'expired'
+          ? 'Dream Gym: Membership Expired'
+          : 'Dream Gym: Plan Updated',
+      body:
+        options.status === 'expired'
+          ? `Hi ${member?.name || 'Member'}, your ${options.planName} has expired.`
+          : `Hi ${member?.name || 'Member'}, your ${options.planName} is ${options.status} until ${options.expiryDate}.`,
+      url: '/member?screen=membership-details',
+      tag: `dreamgym-plan-${memberId}`,
+    }).catch(() => {});
   };
 
   // Add Plan
