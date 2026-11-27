@@ -700,6 +700,109 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
     };
   }
 
+  /**
+   * blockSingleUserOnDevice — immediately send all hardware block commands for one enrollId.
+   * Works even if enflag / weekzone are ignored by the firmware; also sends XML variants.
+   */
+  async function blockSingleUserOnDevice(deviceId, rawId, numericId) {
+    const id = String(deviceId || config.defaultDevice.serialNumber).trim();
+    const sess = activeDeviceSessions.get(id);
+
+    const commandLog = [];
+
+    // JSON block commands (all variants the 6K may understand)
+    const jsonCmds = [
+      { cmd: 'enableuser', enrollid: numericId, enflag: 0 },
+      { cmd: 'enableuser', enrollid: String(rawId), enflag: 0 },
+      { cmd: 'setuserlock', count: 1, record: [{ enrollid: numericId, weekzone: 0, starttime: '2000-01-01 00:00:00', endtime: '2000-01-01 00:00:00' }] },
+      { cmd: 'deleteuser', enrollid: numericId, backupnum: 11 },
+    ];
+
+    // XML block commands
+    const xmlCmds = [
+      `<?xml version="1.0"?>\n<Command>\n<Name>DisableUser</Name>\n<UserID>${rawId}</UserID>\n</Command>`,
+      `<?xml version="1.0"?>\n<Command>\n<Name>SetUserLock</Name>\n<UserID>${rawId}</UserID>\n<TimeZone>0</TimeZone>\n<WeekZone>0</WeekZone>\n</Command>`,
+      `<?xml version="1.0"?>\n<Command>\n<Name>DeleteUser</Name>\n<UserID>${rawId}</UserID>\n</Command>`,
+    ];
+
+    if (!sess || sess.ws.readyState !== WebSocket.OPEN) {
+      console.log(`[BLOCK USER] Device ${id} not connected. Block commands queued in log only for User ${rawId}.`);
+      await store.logDiagnostic({
+        event: 'ws_manual_block_queued',
+        deviceId: id,
+        messageType: 'json',
+        rawPreview: `MANUAL BLOCK (device offline) -> Queued block for enrollId=${rawId}. Commands will be sent on next device connection.`,
+      });
+      return { ok: false, deviceConnected: false, enrollId: rawId, error: `Device ${id} is not currently connected. Block commands will be sent automatically when the machine reconnects.` };
+    }
+
+    for (const cmd of jsonCmds) {
+      try { sess.ws.send(JSON.stringify(cmd)); commandLog.push(`JSON: ${JSON.stringify(cmd)}`); } catch {}
+    }
+    for (const xml of xmlCmds) {
+      try { sess.ws.send(xml); commandLog.push(`XML: ${xml.slice(0, 80)}`); } catch {}
+    }
+
+    const diag = await store.logDiagnostic({
+      event: 'ws_manual_block',
+      connectionId: sess.connectionId,
+      deviceId: id,
+      remoteIp: sess.remoteIp,
+      messageType: 'json',
+      rawPreview: `MANUAL BLOCK -> Sent ${commandLog.length} block command(s) for enrollId=${rawId} to Secureye ${id}`,
+    });
+    broadcastAdmin('diagnostic', diag);
+    console.log(`[BLOCK USER] Sent ${commandLog.length} block commands for User ID ${rawId} to device ${id}.`);
+
+    return {
+      ok: true,
+      deviceConnected: true,
+      enrollId: rawId,
+      commandsSent: commandLog.length,
+      message: `Sent ${commandLog.length} block/disable commands for User ID ${rawId} to Secureye ${id}. The machine should now reject their fingerprint at the door.`,
+    };
+  }
+
+  /**
+   * unblockSingleUserOnDevice — re-enable a previously blocked user on the machine.
+   */
+  async function unblockSingleUserOnDevice(deviceId, rawId, numericId) {
+    const id = String(deviceId || config.defaultDevice.serialNumber).trim();
+    const sess = activeDeviceSessions.get(id);
+
+    if (!sess || sess.ws.readyState !== WebSocket.OPEN) {
+      return { ok: false, deviceConnected: false, enrollId: rawId, error: `Device ${id} is not currently connected.` };
+    }
+
+    const cmds = [
+      { cmd: 'enableuser', enrollid: numericId, enflag: 1 },
+      { cmd: 'enableuser', enrollid: String(rawId), enflag: 1 },
+    ];
+
+    let sent = 0;
+    for (const cmd of cmds) {
+      try { sess.ws.send(JSON.stringify(cmd)); sent++; } catch {}
+    }
+
+    const diag = await store.logDiagnostic({
+      event: 'ws_manual_unblock',
+      connectionId: sess.connectionId,
+      deviceId: id,
+      remoteIp: sess.remoteIp,
+      messageType: 'json',
+      rawPreview: `MANUAL UNBLOCK -> Sent ${sent} enable command(s) for enrollId=${rawId} to Secureye ${id}`,
+    });
+    broadcastAdmin('diagnostic', diag);
+
+    return {
+      ok: true,
+      deviceConnected: true,
+      enrollId: rawId,
+      commandsSent: sent,
+      message: `Sent ${sent} unblock/enable commands for User ID ${rawId} to Secureye ${id}.`,
+    };
+  }
+
   // Automatic 5-minute expiry sweep (catches memberships expiring at midnight automatically)
   const expirySweepTimer = setInterval(() => {
     for (const sess of activeDeviceSessions.values()) {
@@ -715,6 +818,8 @@ export function attachBiometricWebSocketServer({ httpServer, store, pushService 
     disconnectDevice,
     requestAttendanceSync,
     enforceAllSubscriptionsOnDevice,
+    blockSingleUserOnDevice,
+    unblockSingleUserOnDevice,
     broadcastAdmin,
     bindHttpUpgrade,
   };
