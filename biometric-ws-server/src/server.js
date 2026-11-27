@@ -18,6 +18,7 @@
 
 import 'dotenv/config';
 import http from 'http';
+import net from 'net';
 import os from 'os';
 import express from 'express';
 import cors from 'cors';
@@ -35,6 +36,27 @@ const wsController = attachBiometricWebSocketServer({ httpServer, store, pushSer
 app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+
+// Diagnostic Request Logger (logs all incoming non-polling device/client requests)
+app.use((req, res, next) => {
+  const ip = req.ip || req.socket?.remoteAddress;
+  if (!req.url.startsWith('/api/biometric/status') && req.url !== '/health') {
+    console.log(`[HTTP ${req.method}] ${req.url} | from IP: ${ip}`);
+  }
+  next();
+});
+
+// ADMS / Cloud Push Protocol Handler for Secureye terminals that use HTTP Push
+app.all(['/iclock/cdata', '/cdata', '/iclock/getrequest'], (req, res) => {
+  const sn = req.query.SN || req.query.sn || config.defaultDevice.serialNumber;
+  console.log(`[ADMS HTTP] ${req.method} ${req.url} from Device SN=${sn} | IP=${req.ip || req.socket?.remoteAddress}`);
+  if (req.method === 'GET' && req.query.options === 'all') {
+    res.setHeader('Content-Type', 'text/plain');
+    return res.send(`GET OPTION FROM: ${sn}\nStamp=9999\nOpStamp=9999\nErrorDelay=30\nDelay=10\nTransTimes=00:00;14:00\nTransInterval=1\nTransFlag=1111000000\nTimeZone=5.5\nRealtime=1\nEncrypt=0`);
+  }
+  res.setHeader('Content-Type', 'text/plain');
+  return res.send('OK');
+});
 
 function requireAdminSecret(req, res, next) {
   if (!config.biometricApiSecret) return next();
@@ -89,7 +111,15 @@ app.get('/biometric', (_req, res) => {
 });
 
 app.get('/api/biometric/status', requireAdminSecret, (_req, res) => {
+  const activeConnections = wsController.getActiveConnections();
   const primaryDevice = store.getDevice(config.defaultDevice.serialNumber);
+
+  // Guarantee real-time status: strictly check live active WebSocket connections
+  const isActuallyConnected = activeConnections.some(
+    (c) => c.deviceId === primaryDevice.id || c.deviceId === config.defaultDevice.serialNumber
+  );
+  primaryDevice.wsConnectionStatus = isActuallyConnected ? 'connected' : 'disconnected';
+
   res.status(200).json({
     ok: true,
     cloudRun: config.isCloudRun,
@@ -97,8 +127,11 @@ app.get('/api/biometric/status', requireAdminSecret, (_req, res) => {
     firestoreConnected: store.firestoreReady,
     firestoreAuthMode: store.authMode,
     device: primaryDevice,
-    devices: store.listDevices(),
-    activeConnections: wsController.getActiveConnections(),
+    devices: store.listDevices().map((d) => ({
+      ...d,
+      wsConnectionStatus: activeConnections.some((c) => c.deviceId === d.id) ? 'connected' : 'disconnected',
+    })),
+    activeConnections,
     serverTime: new Date().toISOString(),
   });
 });
@@ -234,23 +267,100 @@ async function start() {
   await store.init();
   await pushService.init();
 
+  const lanIps = getLocalIpv4List();
+  const serverIp = lanIps[0] || '<THIS_PC_IP>';
+
+  // Primary Server (Default Port 8080)
   httpServer.listen(config.port, config.host, () => {
-    const lanIps = getLocalIpv4List();
-    const serverIp = lanIps[0] || '<THIS_PC_IP>';
     console.log('===================================================================');
     console.log('Dream Gym — Dedicated Secureye Biometric WebSocket Server Ready');
-    console.log(`Listening on       : http://${config.host}:${config.port}`);
-    console.log(`WebSocket Endpoint : /biometric (and / for IP+Port clients)`);
+    console.log(`Primary Port 8080  : http://${config.host}:${config.port}`);
+    console.log(`WebSocket Endpoint : /biometric, /ws, and / (root)`);
     console.log(`Admin Live Stream  : /ws/admin`);
     console.log(`Firebase Project   : ${config.firebaseProjectId} (${store.authMode})`);
     console.log(`Expected Device SN : ${config.defaultDevice.serialNumber} (Cloud ID: ${config.defaultDevice.cloudId})`);
     console.log('-------------------------------------------------------------------');
-    console.log('ENTER ON YOUR SECUREYE MACHINE (Communication -> Web Server):');
-    console.log(`  Server Address   : ${serverIp}`);
-    console.log(`  Port Number      : ${config.port}`);
-    console.log(`  Web Server URL   : ws://${serverIp}:${config.port}/biometric`);
-    console.log('===================================================================');
+    console.log('SECUREYE CLOUD SETTINGS (Menu -> Comm. -> Web Server):');
+    console.log(`  Domain / Host    : dream-gym-1.onrender.com`);
+    console.log(`  Public IP        : 216.24.57.16 (or 216.24.57.18)`);
+    console.log(`  Port Number      : 443 (for wss://) or 80 (for ws://)`);
+    console.log(`  Web Server URL   : wss://dream-gym-1.onrender.com/biometric`);
+    console.log('-------------------------------------------------------------------');
   });
+
+  // Secondary Alternate Port 8000 Listener (Extra backup WebSocket URL)
+  const secondaryPort = 8000;
+  if (!config.isCloudRun) {
+    try {
+      const secondaryServer = http.createServer(app);
+      if (typeof wsController.bindHttpUpgrade === 'function') {
+        wsController.bindHttpUpgrade(secondaryServer);
+      }
+      secondaryServer.listen(secondaryPort, config.host, () => {
+        console.log('SECONDARY BACKUP URL (Port 8000):');
+        console.log(`  Server Address   : ${serverIp}`);
+        console.log(`  Port Number      : ${secondaryPort}`);
+        console.log(`  Web Server URL   : ws://${serverIp}:${secondaryPort}/biometric`);
+        console.log('===================================================================');
+      }).on('error', (err) => {
+        console.warn(`[SecondaryServer] Could not bind optional backup port ${secondaryPort}:`, err.message);
+      });
+    } catch {}
+  }
+
+  // Dedicated TCP LogClient Listener (Port 5005) - Realand / Secureye Log Client Stream
+  const tcpLogPort = 5005;
+  if (!config.isCloudRun) {
+    try {
+      const tcpServer = net.createServer((socket) => {
+        const clientIp = socket.remoteAddress?.replace(/^.*:/, '') || 'unknown';
+        console.log(`[TCP LogClient] Machine connected from ${clientIp}:${socket.remotePort}`);
+
+        store.updateDeviceState(config.defaultDevice.serialNumber, {
+          wsConnectionStatus: 'connected',
+          remoteIp: clientIp,
+          lastHeartbeatAt: new Date().toISOString(),
+        }).then((updated) => {
+          wsController.broadcastAdmin('device_status', updated);
+        }).catch(() => {});
+
+        socket.on('data', async (chunk) => {
+          const rawText = chunk.toString('utf8');
+          console.log(`[TCP LogClient Data] From ${clientIp} (${chunk.length} bytes): ${rawText.slice(0, 200)}`);
+
+          const diag = await store.logDiagnostic({
+            event: 'tcp_logclient_data',
+            remoteIp: clientIp,
+            rawPreview: rawText.slice(0, 300),
+            byteLength: chunk.length,
+          });
+          wsController.broadcastAdmin('diagnostic', diag);
+
+          // Standard LogClient acknowledgment
+          try {
+            socket.write('OK\r\n');
+          } catch {}
+        });
+
+        socket.on('close', () => {
+          console.log(`[TCP LogClient] Machine connection closed from ${clientIp}`);
+        });
+
+        socket.on('error', (err) => {
+          console.warn(`[TCP LogClient Error] ${err.message}`);
+        });
+      });
+
+      tcpServer.listen(tcpLogPort, config.host, () => {
+        console.log(`TCP LogClient Listener : Port ${tcpLogPort} (Secureye / Realand LogClient Stream)`);
+        console.log('===================================================================');
+      }).on('error', (err) => {
+        console.warn(`[TCP LogClient] Could not bind port ${tcpLogPort}:`, err.message);
+      });
+    } catch (err) {
+      console.warn(`[TCP LogClient Init Error]`, err.message);
+    }
+  }
 }
 
 start().catch((err) => {
