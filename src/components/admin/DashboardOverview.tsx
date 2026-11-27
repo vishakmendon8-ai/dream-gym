@@ -14,8 +14,15 @@ import {
   CalendarPlus, 
   ChevronRight, 
   ChevronDown,
-  ArrowRight
+  ArrowRight,
+  Cpu,
+  Wifi,
+  WifiOff,
+  Activity,
+  RefreshCw
 } from 'lucide-react';
+import { MachineStatusModal } from './MachineStatusModal';
+import { BiometricMachineStatusCard } from '../common/BiometricMachineStatusCard';
 
 export const DashboardOverview: React.FC = () => {
   const { 
@@ -25,10 +32,14 @@ export const DashboardOverview: React.FC = () => {
     accessLogs, 
     payments, 
     setCurrentTab, 
-    setIsAddMemberOpen 
+    setIsAddMemberOpen,
+    secureyeDevice,
+    checkBiometricConnection
   } = useGym();
 
   const [trendRange, setTrendRange] = useState('Last 6 Months');
+  const [showMachineModal, setShowMachineModal] = useState(false);
+  const isDeviceOnline = secureyeDevice?.wsConnectionStatus === 'connected';
 
   // Genuine live calculations directly from state/Firestore records
   const totalMembersCount = members.length;
@@ -56,6 +67,9 @@ export const DashboardOverview: React.FC = () => {
   return (
     <div className="space-y-5 animate-fade-in pb-10">
       
+      {/* 0. BIOMETRIC HARDWARE REAL-TIME STATUS */}
+      <BiometricMachineStatusCard />
+
       {/* 1. TOP ROW: 6 KPI CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5">
         
@@ -469,6 +483,12 @@ export const DashboardOverview: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Real-Time Machine Status & Diagnostics Modal */}
+      <MachineStatusModal
+        isOpen={showMachineModal}
+        onClose={() => setShowMachineModal(false)}
+      />
 
     </div>
   );
