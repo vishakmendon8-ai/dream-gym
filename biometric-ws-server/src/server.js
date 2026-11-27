@@ -212,6 +212,31 @@ app.post('/api/biometric/enforce-subscriptions', requireAdminSecret, async (req,
 });
 
 // ============================================================================
+// Block / Unblock a single biometric user ID on the connected Secureye device
+// POST /api/biometric/block-user   { enrollId: "5", deviceId?: "..." }
+// POST /api/biometric/unblock-user { enrollId: "5", deviceId?: "..." }
+// ============================================================================
+app.post('/api/biometric/block-user', requireAdminSecret, async (req, res) => {
+  const rawId = String(req.body?.enrollId ?? req.body?.biometricId ?? '').trim();
+  const deviceId = String(req.body?.deviceId || config.defaultDevice.serialNumber).trim();
+  if (!rawId) return res.status(400).json({ ok: false, error: 'enrollId is required.' });
+
+  const numericId = /^\d+$/.test(rawId) ? Number(rawId) : rawId;
+  const result = await wsController.blockSingleUserOnDevice(deviceId, rawId, numericId);
+  return res.status(result.ok ? 200 : 409).json(result);
+});
+
+app.post('/api/biometric/unblock-user', requireAdminSecret, async (req, res) => {
+  const rawId = String(req.body?.enrollId ?? req.body?.biometricId ?? '').trim();
+  const deviceId = String(req.body?.deviceId || config.defaultDevice.serialNumber).trim();
+  if (!rawId) return res.status(400).json({ ok: false, error: 'enrollId is required.' });
+
+  const numericId = /^\d+$/.test(rawId) ? Number(rawId) : rawId;
+  const result = await wsController.unblockSingleUserOnDevice(deviceId, rawId, numericId);
+  return res.status(result.ok ? 200 : 409).json(result);
+});
+
+// ============================================================================
 // Web Push Notification Endpoints for Dream Gym Member App
 // ============================================================================
 app.get('/api/push/vapid-public-key', (_req, res) => {
