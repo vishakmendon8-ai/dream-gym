@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useGym } from '../../context/GymContext';
 import { AdmsBackendPanel } from './AdmsBackendPanel';
 import { BiometricManagementPanel } from './BiometricManagementPanel';
+import { BiometricMachineStatusCard } from '../common/BiometricMachineStatusCard';
 import { BIOMETRIC_CONFIG } from '../../config/biometricConfig';
 import {
   Activity,
@@ -20,6 +21,7 @@ import {
   Volume2,
   VolumeX,
   Wifi,
+  WifiOff,
   XCircle,
 } from 'lucide-react';
 
@@ -113,44 +115,16 @@ export const BiometricView: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* Minimal Client-Facing Biometric Status Strip */}
-      <div className="bg-white rounded-2xl p-4 border border-[#DCE3E8] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-[#252A30] text-[#FFD447] flex items-center justify-center shrink-0">
-            <Fingerprint className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm sm:text-base font-black text-[#252A30]">
-                Biometric Attendance
-              </h2>
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border inline-flex items-center gap-1 ${
-                  isDeviceOnline
-                    ? 'bg-[#36A875]/15 text-[#237A54] border-[#36A875]/30'
-                    : isCloudLive
-                    ? 'bg-[#FFF8E7] text-[#8A6112] border-[#FFD447]/70'
-                    : 'bg-[#F5F6F2] text-[#5A646E] border-[#DCE3E8]'
-                }`}
-              >
-                {isDeviceOnline ? (
-                  <Wifi className="w-3 h-3 text-[#36A875]" />
-                ) : (
-                  <Radio className={`w-3 h-3 ${isCloudLive ? 'text-[#E5A024] animate-pulse' : ''}`} />
-                )}
-                <span>
-                  {isDeviceOnline
-                    ? 'Scanner Connected'
-                    : isCloudLive
-                    ? 'Ready'
-                    : 'Connecting...'}
-                </span>
-              </span>
-            </div>
-            <p className="text-xs text-[#84909A] mt-0.5">
-              Enroll members on the biometric machine and enter their User ID below. Everything else runs automatically.
-            </p>
-          </div>
+      {/* Live Biometric Machine Real-Time Connection Indicator */}
+      <BiometricMachineStatusCard />
+
+      {/* Client-Facing Biometric Settings Strip */}
+      <div className="bg-white rounded-2xl p-3 px-4 border border-[#DCE3E8] shadow-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Fingerprint className="w-4 h-4 text-[#FFD447]" />
+          <p className="text-xs text-[#84909A] truncate">
+            Enroll members on the machine (User ID) and map them below. Scans auto-log in Attendance.
+          </p>
         </div>
 
         <button
@@ -226,35 +200,18 @@ export const BiometricView: React.FC = () => {
           <span>Live Scan History ({biometricAttendance.length})</span>
         </button>
 
-        {showSystemSetup && (
-          <>
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('cloud_biometric')}
-              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all ${
-                activeSubTab === 'cloud_biometric'
-                  ? 'bg-[#252A30] text-[#FFD447] shadow-xs'
-                  : 'bg-white text-[#5A646E] border border-[#DCE3E8] hover:border-[#FFD447]'
-              }`}
-            >
-              <Cloud className="w-3.5 h-3.5" />
-              <span>Cloud Diagnostics</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('secureye_bridge')}
-              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all ${
-                activeSubTab === 'secureye_bridge'
-                  ? 'bg-[#252A30] text-[#FFD447] shadow-xs'
-                  : 'bg-white text-[#5A646E] border border-[#DCE3E8] hover:border-[#FFD447]'
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>ADMS / Local Bridge</span>
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('cloud_biometric')}
+          className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all ${
+            activeSubTab === 'cloud_biometric'
+              ? 'bg-[#252A30] text-[#FFD447] shadow-xs'
+              : 'bg-white text-[#252A30] border border-[#DCE3E8] hover:border-[#FFD447]'
+          }`}
+        >
+          <Cloud className="w-3.5 h-3.5" />
+          <span>Machine Diagnostics &amp; Sync</span>
+        </button>
       </div>
 
       {/* ================================================================= */}
@@ -572,9 +529,9 @@ export const BiometricView: React.FC = () => {
       )}
 
       {/* ================================================================= */}
-      {/* DEVELOPER-ONLY TAB: CLOUD SERVER DIAGNOSTICS                      */}
+      {/* TAB 3: MACHINE DIAGNOSTICS & SYNC PANEL                           */}
       {/* ================================================================= */}
-      {showSystemSetup && activeSubTab === 'cloud_biometric' && <BiometricManagementPanel />}
+      {activeSubTab === 'cloud_biometric' && <BiometricManagementPanel />}
 
       {/* ================================================================= */}
       {/* DEVELOPER-ONLY TAB: ADMS / LOCAL BRIDGE                           */}
