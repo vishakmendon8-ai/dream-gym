@@ -37,6 +37,8 @@ const MainLayout: React.FC = () => {
   } = useGym();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pillTick, setPillTick] = useState(0);
+  const [tabPopCounts, setTabPopCounts] = useState<number[]>([0, 0, 0, 0, 0]);
 
   // If URL, hash, or state is set to Member App, render the Member App
   const isMember =
@@ -85,6 +87,21 @@ const MainLayout: React.FC = () => {
     { id: 'attendance', label: 'Attendance', icon: <CalendarDays className="w-5 h-5" /> },
   ];
 
+  const activeNavIndex = mobileMenuOpen
+    ? 4
+    : (() => {
+        const idx = mobileQuickTabs.findIndex(
+          (item) => currentTab === item.id || (item.id === 'dashboard' && currentTab === 'overview')
+        );
+        return idx === -1 ? 4 : idx;
+      })();
+
+  const handleNavClick = (index: number, action: () => void) => {
+    setPillTick((t) => t + 1);
+    setTabPopCounts((prev) => prev.map((count, i) => (i === index ? count + 1 : count)));
+    action();
+  };
+
   return (
     <div className="min-h-[100dvh] w-full bg-[#E5E8E3] flex justify-center font-sans antialiased selection:bg-[#FFD447] selection:text-[#252A30]">
       {/* Phone-Only Mobile App Shell (full-bleed on phones, 430px centered mobile frame on wide screens) */}
@@ -101,59 +118,91 @@ const MainLayout: React.FC = () => {
         </div>
 
         {/* Row 2: Scrollable Content Area (strictly ABOVE bottom nav bar — zero overlap possible) */}
-        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3.5 pt-3.5 pb-10">
+        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3.5 pt-3.5 pb-6">
           {renderActiveTab()}
         </main>
 
-        {/* Row 3: Solid Opaque Docked Mobile Bottom Navigation Bar */}
+        {/* Row 3: Frosted Glass Slot Bottom Navigation Bar with Jelly Click Animation */}
         <nav
-          className="shrink-0 relative z-40 bg-[#252A30] text-white border-t border-[#353C46] px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,0.22)]"
+          className="shrink-0 relative z-40 px-3 pt-1.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-[#F5F6F2] via-[#F5F6F2]/95 to-transparent"
           aria-label="Mobile admin navigation"
         >
-          <div className="grid grid-cols-5 gap-1">
-            {mobileQuickTabs.map((item) => {
-              const isActive =
-                currentTab === item.id ||
-                (item.id === 'dashboard' && currentTab === 'overview');
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setCurrentTab(item.id)}
-                  className={`relative flex flex-col items-center justify-center py-1.5 rounded-xl transition-all active:scale-95 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD447] ${
-                    isActive
-                      ? 'bg-[#FFD447] text-[#252A30] font-black shadow-sm'
-                      : 'text-[#A0AEC0] hover:text-white'
+          <div className="glass-nav-slot relative rounded-[26px] p-1.5 text-white overflow-hidden">
+            {/* Elastic Sliding Active Glass Pill */}
+            <div className="absolute inset-1.5 pointer-events-none">
+              <div
+                className="glass-nav-indicator-track h-full w-1/5 px-0.5"
+                style={{ transform: `translateX(${activeNavIndex * 100}%)` }}
+              >
+                <div
+                  key={`pill-${pillTick}`}
+                  className={`glass-nav-pill w-full h-full rounded-[20px] ${
+                    pillTick > 0 ? 'animate-glass-pill-jelly' : ''
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* 5 Interactive Glass Slot Buttons */}
+            <div className="relative z-10 grid grid-cols-5">
+              {mobileQuickTabs.map((item, idx) => {
+                const isActive = activeNavIndex === idx;
+                const popCount = tabPopCounts[idx];
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleNavClick(idx, () => setCurrentTab(item.id))}
+                    className={`glass-nav-btn relative flex flex-col items-center justify-center py-2 rounded-[20px] outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD447] ${
+                      isActive
+                        ? 'text-[#252A30] font-black'
+                        : 'text-white/75 hover:text-white'
+                    }`}
+                  >
+                    <div
+                      key={popCount}
+                      className={`flex flex-col items-center justify-center ${
+                        popCount > 0 ? 'glass-nav-btn is-jelly-pop' : ''
+                      }`}
+                    >
+                      <div className="glass-nav-icon relative">
+                        {item.icon}
+                        {item.id === 'biometric' && isSecureyeOnline && (
+                          <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-[#36A875] ring-2 ring-[#252A30]" />
+                        )}
+                      </div>
+                      <span className="text-[10px] font-bold mt-0.5 leading-none tracking-tight">
+                        {item.label}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => handleNavClick(4, () => setMobileMenuOpen(true))}
+                className={`glass-nav-btn relative flex flex-col items-center justify-center py-2 rounded-[20px] outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD447] ${
+                  activeNavIndex === 4
+                    ? 'text-[#252A30] font-black'
+                    : 'text-white/75 hover:text-white'
+                }`}
+              >
+                <div
+                  key={tabPopCounts[4]}
+                  className={`flex flex-col items-center justify-center ${
+                    tabPopCounts[4] > 0 ? 'glass-nav-btn is-jelly-pop' : ''
                   }`}
                 >
-                  <div className="relative">
-                    {item.icon}
-                    {item.id === 'biometric' && isSecureyeOnline && (
-                      <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-[#36A875] ring-2 ring-[#252A30]" />
-                    )}
+                  <div className="glass-nav-icon relative">
+                    <Menu className="w-5 h-5" />
                   </div>
-                  <span className="text-[10px] font-bold mt-0.5 leading-none">
-                    {item.label}
+                  <span className="text-[10px] font-bold mt-0.5 leading-none tracking-tight">
+                    More
                   </span>
-                </button>
-              );
-            })}
-
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className={`flex flex-col items-center justify-center py-1.5 rounded-xl transition-all active:scale-95 outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FFD447] ${
-                mobileMenuOpen ||
-                !mobileQuickTabs.some(
-                  (t) => t.id === currentTab || (t.id === 'dashboard' && currentTab === 'overview')
-                )
-                  ? 'bg-white/15 text-[#FFD447] font-black'
-                  : 'text-[#A0AEC0] hover:text-white'
-              }`}
-            >
-              <Menu className="w-5 h-5" />
-              <span className="text-[10px] font-bold mt-0.5 leading-none">More</span>
-            </button>
+                </div>
+              </button>
+            </div>
           </div>
         </nav>
 
