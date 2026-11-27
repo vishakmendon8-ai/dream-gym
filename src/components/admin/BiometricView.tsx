@@ -17,7 +17,6 @@ import {
   Save,
   Search,
   Server,
-  Settings2,
   Volume2,
   VolumeX,
   Wifi,
@@ -41,9 +40,14 @@ export const BiometricView: React.FC = () => {
     biometricWsStreamStatus,
   } = useGym();
 
-  // Default to the client-facing Member Fingerprint IDs view; technical setup stays hidden unless toggled open
+  // Always open to Member Fingerprint IDs; developer/installer tools are completely invisible
+  // to gym clients and only appear when an installer opens the app with ?setup=1 in the URL.
+  const isInstallerMode =
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('setup') === '1';
+
   const [activeSubTab, setActiveSubTab] = useState<BiometricSubTab>('member_mapping');
-  const [showSystemSetup, setShowSystemSetup] = useState(false);
+  const showSystemSetup = isInstallerMode;
 
   // Member <-> Secureye User ID Mapping state
   const [mappingSearch, setMappingSearch] = useState('');
@@ -107,28 +111,18 @@ export const BiometricView: React.FC = () => {
     setSavingMemberId(null);
   };
 
-  const handleToggleSystemSetup = () => {
-    setShowSystemSetup((prev) => {
-      const next = !prev;
-      if (!next && (activeSubTab === 'cloud_biometric' || activeSubTab === 'secureye_bridge')) {
-        setActiveSubTab('member_mapping');
-      }
-      return next;
-    });
-  };
-
   return (
-    <div className="space-y-5">
-      {/* Clean Client-Facing Biometric Status Strip (Zero Server Config Needed) */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#DCE3E8] shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-start sm:items-center gap-3 min-w-0">
+    <div className="space-y-4">
+      {/* Minimal Client-Facing Biometric Status Strip */}
+      <div className="bg-white rounded-2xl p-4 border border-[#DCE3E8] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-[#252A30] text-[#FFD447] flex items-center justify-center shrink-0">
             <Fingerprint className="w-5 h-5" />
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm sm:text-base font-black text-[#252A30]">
-                Biometric Attendance &amp; Fingerprint IDs
+                Biometric Attendance
               </h2>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border inline-flex items-center gap-1 ${
@@ -148,53 +142,33 @@ export const BiometricView: React.FC = () => {
                   {isDeviceOnline
                     ? 'Scanner Connected'
                     : isCloudLive
-                    ? 'Cloud Sync Ready'
+                    ? 'Ready'
                     : 'Connecting...'}
                 </span>
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#F5F6F2] text-[#5A646E] border border-[#DCE3E8] font-mono">
-                {BIOMETRIC_CONFIG.defaultTerminal.name} • SN: {BIOMETRIC_CONFIG.defaultTerminal.serialNumber}
-              </span>
             </div>
-            <p className="text-xs text-[#84909A] mt-1">
-              Cloud connection is built into the app. Enroll members on the biometric machine and match their numeric User ID below.
+            <p className="text-xs text-[#84909A] mt-0.5">
+              Enroll members on the biometric machine and enter their User ID below. Everything else runs automatically.
             </p>
           </div>
         </div>
 
-        {/* Simple Client Controls + Hidden Installer System Setup Toggle */}
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
-          <button
-            type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
-              soundEnabled
-                ? 'bg-white border-[#DCE3E8] text-[#252A30] hover:border-[#FFD447]'
-                : 'bg-[#F5F6F2] border-transparent text-[#84909A]'
-            }`}
-          >
-            {soundEnabled ? (
-              <Volume2 className="w-3.5 h-3.5 text-[#36A875]" />
-            ) : (
-              <VolumeX className="w-3.5 h-3.5" />
-            )}
-            <span>{soundEnabled ? 'Chime ON' : 'Muted'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleToggleSystemSetup}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all ${
-              showSystemSetup
-                ? 'bg-[#252A30] text-[#FFD447] border-[#252A30]'
-                : 'bg-white text-[#84909A] border-[#DCE3E8] hover:text-[#252A30]'
-            }`}
-            title="Show or hide technical server diagnostics (installer / developer only)"
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            <span>{showSystemSetup ? 'Hide System Setup' : 'System Setup'}</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setSoundEnabled(!soundEnabled)}
+          className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all self-start sm:self-auto shrink-0 ${
+            soundEnabled
+              ? 'bg-white border-[#DCE3E8] text-[#252A30] hover:border-[#FFD447]'
+              : 'bg-[#F5F6F2] border-transparent text-[#84909A]'
+          }`}
+        >
+          {soundEnabled ? (
+            <Volume2 className="w-3.5 h-3.5 text-[#36A875]" />
+          ) : (
+            <VolumeX className="w-3.5 h-3.5" />
+          )}
+          <span>{soundEnabled ? 'Chime ON' : 'Muted'}</span>
+        </button>
       </div>
 
       {/* Installer / Developer Bar (Completely hidden from gym clients by default) */}
